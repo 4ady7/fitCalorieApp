@@ -55,6 +55,17 @@ test('keeps a missing nutrient null and a stated zero as zero when totals are co
   assert.equal(totals.carbohydrates.amount, null);
 });
 
+test('scales a per-serving value when the product has no separate serving block', () => {
+  const consumed = consumedFromSnapshot({
+    basis: basisFromType('per_serving'),
+    nutrients: sanitizeNutrientMap({ calories: { amount: 269, unit: 'kcal' }, sodium: null }),
+    extras: [],
+    serving: null,
+  }, 2, 'serving');
+  assert.equal(consumed.nutrients.calories.amount, 538);
+  assert.equal(consumed.nutrients.sodium, null);
+});
+
 test('does not convert between incompatible units', () => {
   assert.equal(convertUnit(0.0428, 'g', 'mg'), 42.8);
   assert.equal(convertUnit(0.028, 'g', 'mg'), 28);

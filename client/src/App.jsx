@@ -1,13 +1,30 @@
 import { useEffect, useState } from 'react';
-import { todayISO } from '@shared/nutrients.js';
+import { assertDate, todayISO } from '@shared/nutrients.js';
 import { api } from './api.js';
 import { AuthScreen } from './components/AuthScreen.jsx';
 import { Dashboard } from './components/Dashboard.jsx';
 import { AddFood } from './components/AddFood.jsx';
 
+function dateFromLocation() {
+  const requested = new URLSearchParams(window.location.search).get('date');
+  if (!requested) return todayISO();
+  try {
+    return assertDate(requested);
+  } catch {
+    return todayISO();
+  }
+}
+
+function rememberDate(next) {
+  const url = new URL(window.location.href);
+  if (next === todayISO()) url.searchParams.delete('date');
+  else url.searchParams.set('date', next);
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 export function App() {
   const [user, setUser] = useState(undefined);
-  const [date, setDate] = useState(todayISO);
+  const [date, setDate] = useState(dateFromLocation);
   const [day, setDay] = useState(null);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [notice, setNotice] = useState('');
@@ -45,6 +62,12 @@ export function App() {
     };
   }, [user, date]);
 
+  function chooseDate(next) {
+    rememberDate(next);
+    setDate(next);
+    setNotice('');
+  }
+
   async function logout() {
     await api('/api/auth/logout', { method: 'POST' });
     setUser(null);
@@ -67,7 +90,7 @@ export function App() {
         notice={notice}
         error={error}
         aiConfigured={aiConfigured}
-        onDate={(next) => { setDate(next); setNotice(''); }}
+        onDate={chooseDate}
         onDay={setDay}
         onNotice={setNotice}
         onLogout={logout}

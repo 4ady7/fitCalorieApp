@@ -29,7 +29,7 @@ export function Dashboard({ user, date, day, notice, error, aiConfigured, onDate
         <aside>
           <DateNav date={date} isToday={isToday} onDate={onDate} />
           <History history={day?.history || []} date={date} onDate={onDate} />
-          {day && <Goals goals={day.goals} onSaved={(goals) => onDay({ ...day, goals })} onNotice={onNotice} />}
+          {day && <Goals date={date} onDay={onDay} onNotice={onNotice} goals={day.goals} />}
         </aside>
         <main>
           {notice && <p className="banner success" role="status">{notice}</p>}
@@ -86,7 +86,7 @@ function History({ history, date, onDate }) {
   );
 }
 
-function Goals({ goals, onSaved, onNotice }) {
+function Goals({ date, goals, onDay, onNotice }) {
   const [values, setValues] = useState(() => fromGoals(goals));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -102,9 +102,11 @@ function Goals({ goals, onSaved, onNotice }) {
       targets[key] = raw === '' ? null : Number(raw);
     }
     try {
-      const data = await api('/api/goals', { method: 'PUT', body: { targets } });
-      onSaved(data.goals);
-      onNotice('Goals saved.');
+      await api('/api/goals', { method: 'PUT', body: { targets } });
+      onDay(await api(`/api/days/${date}`));
+      onNotice(date === todayISO()
+        ? 'Goals saved.'
+        : 'Goals saved from today onward. This day still uses the earlier goal.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -115,6 +117,7 @@ function Goals({ goals, onSaved, onNotice }) {
   return (
     <section className="panel">
       <h2>Daily goals</h2>
+      <p className="hint">A saved goal applies from today onward. Earlier days keep the goal that was already in effect.</p>
       <form onSubmit={save} className="stack">
         {GOAL_KEYS.map((key) => {
           const def = NUTRIENT_DEFS.find((item) => item.key === key);

@@ -163,7 +163,11 @@ export function createApp(options = {}) {
   app.put('/api/goals', asyncRoute(async (req, res) => {
     assertOrigin(req);
     const user = requireUser(req);
-    res.json({ goals: saveGoals(db, user.id, req.body?.targets || req.body) });
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const targets = body.targets && typeof body.targets === 'object' ? { ...body.targets } : { ...body };
+    if (body.effectiveDate && targets.effectiveDate == null) targets.effectiveDate = body.effectiveDate;
+    delete targets.userId;
+    res.json({ goals: saveGoals(db, user.id, targets) });
   }));
 
   app.post('/api/entries', asyncRoute(async (req, res) => {

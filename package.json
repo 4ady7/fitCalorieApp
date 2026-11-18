@@ -7,7 +7,7 @@
     "dev": "concurrently -k -n api,web -c green,blue \"node server/index.js\" \"vite\"",
     "start": "node server/index.js",
     "build": "vite build",
-    "test": "node --test tests/nutrition.test.mjs tests/extract.test.mjs tests/scan.test.mjs tests/database.test.mjs",
+    "test": "node --test tests/nutrition.test.mjs tests/extract.test.mjs tests/scan.test.mjs tests/database.test.mjs tests/multiday.test.mjs",
     "test:e2e": "node --test tests/e2e.test.mjs"
   },
   "dependencies": {

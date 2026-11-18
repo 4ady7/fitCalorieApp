@@ -50,6 +50,7 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
   const scanLock = useRef(false);
+  const submitLock = useRef(false);
 
   useEffect(() => {
     function onKey(event) {
@@ -191,7 +192,8 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
 
   async function addReviewed(event) {
     event.preventDefault();
-    if (!preview?.consumed) return;
+    if (submitLock.current || !preview?.consumed) return;
+    submitLock.current = true;
     setLoading('Adding to your log…');
     setError('');
     try {
@@ -208,6 +210,7 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
       });
       onAdded(data.day, data.duplicate ? `${product.name} was already added.` : `${product.name} added.`);
     } catch (err) {
+      submitLock.current = false;
       setError(err.message);
       setLoading('');
     }
@@ -215,6 +218,7 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
 
   async function addManual(event) {
     event.preventDefault();
+    if (submitLock.current) return;
     const nutrients = {};
     for (const def of NUTRIENT_DEFS) {
       const raw = manual[def.key].trim();
@@ -233,8 +237,9 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
       setError('Enter the calories. Leave every other nutrient empty when you do not know it.');
       return;
     }
-    setLoading('Adding to your log…');
     setError('');
+    submitLock.current = true;
+    setLoading('Adding to your log…');
     const key = idempotencyKey || crypto.randomUUID();
     setIdempotencyKey(key);
     try {
@@ -253,6 +258,7 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
       });
       onAdded(data.day, data.duplicate ? `${manualName} was already added.` : `${manualName} added.`);
     } catch (err) {
+      submitLock.current = false;
       setError(err.message);
       setLoading('');
     }

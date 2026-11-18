@@ -136,9 +136,8 @@ export function consumedFromSnapshot(snapshot, quantity, quantityUnit) {
     throw new Error('Choose whether these values are per 100 g, per 100 ml, per serving, or per product.');
   }
 
-  if (quantityUnit === 'serving') {
+  if (quantityUnit === 'serving' && snapshot.serving) {
     const serving = snapshot.serving;
-    if (!serving) throw new Error('This product does not include a serving size.');
     if (serving.nutrients?.calories) {
       return pack(scaleMap(serving.nutrients, quantity), scaleExtras(serving.extras, quantity), quantity, serving.label || 'per serving');
     }
