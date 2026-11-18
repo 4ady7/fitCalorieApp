@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { HttpError } from './errors.js';
 
-const SESSION_MS = 1000 * 60 * 60 * 24 * 30;
+const SESSION_MS = 1000 * 60 * 60 * 24 * 400;
 
 export function hashPassword(password) {
   const n = Number(process.env.SCRYPT_N || 16384);
