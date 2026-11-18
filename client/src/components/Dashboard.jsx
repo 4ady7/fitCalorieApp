@@ -5,6 +5,12 @@ import { confidenceLabel, formatDay, quantityLabel, shortDay, sourceLabel } from
 import { NutrientTable } from './NutrientTable.jsx';
 
 const MACROS = ['protein', 'carbohydrates', 'fat', 'fibre'];
+const MACRO_LABELS = {
+  protein: 'Protein',
+  carbohydrates: 'Carbs',
+  fat: 'Fat',
+  fibre: 'Fibre',
+};
 
 function shownAmount(total, entryCount) {
   if (entryCount === 0) return 0;
@@ -16,12 +22,20 @@ export function Dashboard({ user, date, day, notice, error, aiConfigured, onDate
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
-          <p className="eyebrow">FitCalorie</p>
-          <strong>{user.email}</strong>
+        <div className="brand">
+          <span className="mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" width="34" height="34">
+              <rect width="32" height="32" rx="10" fill="currentColor" />
+              <path d="M8 20.5c2.2-4.8 4.2-7.2 8-7.2s5.8 2.4 8 7.2" fill="none" stroke="#f6f3ea" strokeWidth="2.4" strokeLinecap="round" />
+            </svg>
+          </span>
+          <div>
+            <p className="eyebrow">FitCalorie</p>
+            <strong className="who">{user.email}</strong>
+          </div>
         </div>
         <div className="row">
-          <button type="button" className="primary" onClick={onAdd}>Add food</button>
+          <button type="button" className="primary" onClick={onAdd}><span aria-hidden="true">+</span> Add food</button>
           <button type="button" className="ghost" onClick={onLogout}>Log out</button>
         </div>
       </header>
@@ -68,6 +82,7 @@ function DateNav({ date, isToday, onDate }) {
 }
 
 function History({ history, date, onDate }) {
+  const peak = Math.max(1, ...history.map((item) => Number(item.calories) || 0));
   return (
     <section className="panel">
       <h2>Previous days</h2>
@@ -76,6 +91,7 @@ function History({ history, date, onDate }) {
         {history.map((item) => (
           <li key={item.date}>
             <button type="button" aria-current={item.date === date ? 'date' : undefined} onClick={() => onDate(item.date)}>
+              <span className="history-fill" style={{ width: `${((Number(item.calories) || 0) / peak) * 100}%` }} aria-hidden="true" />
               <span>{shortDay(item.date)}</span>
               <strong>{formatNumber(item.calories, 'kcal')} kcal</strong>
             </button>
@@ -129,7 +145,7 @@ function Goals({ date, goals, onDay, onNotice }) {
           );
         })}
         {error && <p className="banner error" role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save goals'}</button>
+        <button className="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save goals'}</button>
       </form>
     </section>
   );
@@ -145,24 +161,56 @@ function Hero({ day, isToday }) {
   const ratio = goal && amount != null ? amount / goal : null;
   return (
     <section className="hero">
-      <p className="eyebrow">{isToday ? 'Today' : 'Selected day'}</p>
-      <h1>{formatDay(day.date)}</h1>
-      <p className="calorie-figure">
-        <strong>{amount == null ? '—' : formatNumber(amount, 'kcal')}</strong>
-        <span>kcal</span>
-      </p>
-      {ratio == null && <p>No calorie goal yet.</p>}
-      {ratio != null && (
-        <>
+      <div className="hero-copy">
+        <p className="eyebrow">{isToday ? 'Today' : 'Selected day'}</p>
+        <h1>{formatDay(day.date)}</h1>
+        <p className="calorie-figure">
+          <strong>{amount == null ? '—' : formatNumber(amount, 'kcal')}</strong>
+          <span>kcal</span>
+        </p>
+        {ratio == null && <p className="hint">Set a calorie goal to see how this day compares.</p>}
+        {ratio != null && (
           <p>{formatNumber(goal, 'kcal')} kcal goal · {ratio > 1 ? `${formatNumber(amount - goal, 'kcal')} over` : `${formatNumber(goal - amount, 'kcal')} left`}</p>
-          <div className="meter" aria-hidden="true">
-            <span style={{ width: `${Math.min(ratio, 1) * 100}%` }} data-over={ratio > 1 ? 'true' : 'false'} />
-          </div>
-          <p className="hint">{Math.round(ratio * 100)}% of the calorie goal</p>
-        </>
-      )}
-      {day.totals.calories.partial && <p className="hint">Calories are missing from {day.totals.calories.missing} item{day.totals.calories.missing === 1 ? '' : 's'}.</p>}
+        )}
+        {day.totals.calories.partial && <p className="hint">Calories are missing from {day.totals.calories.missing} item{day.totals.calories.missing === 1 ? '' : 's'}.</p>}
+      </div>
+      <CalorieRing ratio={ratio} />
     </section>
+  );
+}
+
+function CalorieRing({ ratio }) {
+  const size = 156;
+  const stroke = 12;
+  const radius = (size - stroke) / 2;
+  const circ = 2 * Math.PI * radius;
+  const hasGoal = ratio != null;
+  const clamped = hasGoal ? Math.min(ratio, 1) : 0;
+  const over = hasGoal && ratio > 1;
+  const percent = hasGoal ? Math.round(ratio * 100) : null;
+  return (
+    <div className={over ? 'ring-wrap is-over' : 'ring-wrap'}>
+      <svg className="ring" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        <circle className="ring-track" cx={size / 2} cy={size / 2} r={radius} fill="none" strokeWidth={stroke} />
+        {hasGoal && (
+          <circle
+            className="ring-fill"
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={`${circ * clamped} ${circ}`}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        )}
+      </svg>
+      <p className="ring-label">
+        <strong>{percent == null ? '—' : `${percent}%`}</strong>
+        <span>{percent == null ? 'No goal' : over ? 'Over goal' : 'Of goal'}</span>
+      </p>
+    </div>
   );
 }
 
@@ -176,13 +224,16 @@ function MacroGrid({ day }) {
         const goal = day.goals[key];
         const ratio = goal && amount != null ? amount / goal : null;
         return (
-          <article key={key}>
-            <h2>{def.label}</h2>
-            <p className="macro-value">{amount == null ? 'Not recorded' : `${formatNumber(amount, def.unit)} ${def.unit}`}</p>
+          <article key={key} data-macro={key}>
+            <div className="macro-head">
+              <h2>{MACRO_LABELS[key]}</h2>
+              {ratio != null && <span className="macro-pct">{Math.round(ratio * 100)}%</span>}
+            </div>
+            <p className={amount == null ? 'macro-value is-empty' : 'macro-value'}>{amount == null ? 'Not recorded' : `${formatNumber(amount, def.unit)} ${def.unit}`}</p>
             {ratio != null && (
               <>
                 <div className="meter" aria-hidden="true"><span style={{ width: `${Math.min(ratio, 1) * 100}%` }} data-over={ratio > 1 ? 'true' : 'false'} /></div>
-                <p className="hint">{Math.round(ratio * 100)}% of {formatNumber(goal, def.unit)} {def.unit}</p>
+                <p className="hint">Goal {formatNumber(goal, def.unit)} {def.unit}</p>
               </>
             )}
             {amount != null && total.partial && <p className="hint">Missing from {total.missing} item{total.missing === 1 ? '' : 's'}.</p>}
@@ -195,29 +246,38 @@ function MacroGrid({ day }) {
 
 function Micros({ day }) {
   const defs = NUTRIENT_DEFS.filter((def) => def.group === 'micro' || def.key === 'saturated_fat' || def.key === 'sugars');
+  const rows = defs.map((def) => {
+    const total = day.totals[def.key];
+    const amount = day.entryCount === 0 ? null : total?.amount ?? null;
+    return { def, total, amount };
+  });
+  const recorded = rows.filter((row) => row.amount != null);
+  const missing = rows.filter((row) => row.amount == null);
   return (
     <section className="panel">
       <h2>Other nutrients</h2>
-      <ul className="micro-grid">
-        {defs.map((def) => {
-          const total = day.totals[def.key];
-          const amount = day.entryCount === 0 ? null : total?.amount ?? null;
-          return (
+      {recorded.length === 0 && day.extras.length === 0 && <p className="hint">None of these were listed on this day’s foods.</p>}
+      {(recorded.length > 0 || day.extras.length > 0) && (
+        <ul className="micro-grid">
+          {recorded.map(({ def, total, amount }) => (
             <li key={def.key}>
               <span>{def.label}</span>
-              <strong>{amount == null ? 'Not recorded' : `${formatNumber(amount, def.unit)} ${def.unit}`}</strong>
-              {amount != null && total.partial && <em>Missing from {total.missing}</em>}
+              <strong>{formatNumber(amount, def.unit)} {def.unit}</strong>
+              {total.partial && <em>Missing from {total.missing}</em>}
             </li>
-          );
-        })}
-        {day.extras.map((item) => (
-          <li key={`${item.key}-${item.unit}`}>
-            <span>{item.label}</span>
-            <strong>{formatNumber(item.amount, item.unit)} {item.unit}</strong>
-            {item.partial && <em>Not on every item</em>}
-          </li>
-        ))}
-      </ul>
+          ))}
+          {day.extras.map((item) => (
+            <li key={`${item.key}-${item.unit}`}>
+              <span>{item.label}</span>
+              <strong>{formatNumber(item.amount, item.unit)} {item.unit}</strong>
+              {item.partial && <em>Not on every item</em>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {missing.length > 0 && (
+        <p className="missing">Not provided: {missing.map((row) => row.def.label).join(', ')}. Empty values were not treated as zero.</p>
+      )}
     </section>
   );
 }
@@ -226,7 +286,7 @@ function EntryList({ day, onDay, onNotice }) {
   return (
     <section className="panel">
       <h2>Food log</h2>
-      {day.entries.length === 0 && <p>Nothing logged for this day.</p>}
+      {day.entries.length === 0 && <p className="empty">Nothing logged for this day.</p>}
       <ul className="entries">
         {day.entries.map((entry) => (
           <EntryRow key={entry.id} entry={entry} onDay={onDay} onNotice={onNotice} />
@@ -281,19 +341,28 @@ function EntryRow({ entry, onDay, onNotice }) {
       <div className="entry-top">
         <div>
           <h3>{entry.name}</h3>
-          <p>{quantityLabel(entry.quantity, entry.quantityUnit)} · {formatNumber(entry.calories.amount, 'kcal')} kcal</p>
-          <p className="hint">{sourceLabel(entry.provenance)} · {confidenceLabel(entry.provenance)} · {entry.snapshot.basis.label}</p>
+          <p className="entry-meta">{quantityLabel(entry.quantity, entry.quantityUnit)} · {entry.snapshot.basis.label}</p>
+          <p className="badges">
+            <span>{sourceLabel(entry.provenance)}</span>
+            <span>{confidenceLabel(entry.provenance)}</span>
+          </p>
         </div>
-        <div className="row">
-          <button type="button" aria-label={`Edit ${entry.name}`} onClick={() => { setEditing((open) => !open); setError(''); }}>Edit</button>
-          <button type="button" aria-label={`Delete ${entry.name}`} onClick={remove} disabled={busy}>Delete</button>
+        <div className="entry-side">
+          <p className="entry-kcal">
+            <strong>{formatNumber(entry.calories.amount, 'kcal')}</strong>
+            <span>kcal</span>
+          </p>
+          <div className="row">
+            <button type="button" aria-label={`Edit ${entry.name}`} onClick={() => { setEditing((open) => !open); setError(''); }}>Edit</button>
+            <button type="button" aria-label={`Delete ${entry.name}`} onClick={remove} disabled={busy}>Delete</button>
+          </div>
         </div>
       </div>
       <p className="macro-line">
         {['protein', 'carbohydrates', 'fat', 'fibre'].map((key) => {
           const def = NUTRIENT_DEFS.find((item) => item.key === key);
           const value = entry.nutrients[key];
-          return <span key={key}>{def.label} {value ? `${formatNumber(value.amount, value.unit)} ${value.unit}` : 'not recorded'}</span>;
+          return <span key={key} data-macro={key}>{def.label} {value ? `${formatNumber(value.amount, value.unit)} ${value.unit}` : 'not recorded'}</span>;
         })}
       </p>
       <details>

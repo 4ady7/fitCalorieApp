@@ -33,10 +33,18 @@ export function AuthScreen({ onAuth }) {
 
   return (
     <main className="auth-screen">
-      <section className="auth-card">
-        <p className="eyebrow">Daily nutrition log</p>
-        <h1>FitCalorie</h1>
-        <p className="lede">Record what you eat, look up a barcode or a product page, and keep the day’s calories and nutrients.</p>
+      <div className="auth-stage">
+        <section className="auth-brand">
+          <p className="eyebrow">Daily nutrition log</p>
+          <h1>FitCalorie</h1>
+          <p className="lede">Record what you eat, look up a barcode or a product page, and keep the day’s calories and nutrients.</p>
+          <ul className="auth-points">
+            <li>Scan a barcode or open a product page</li>
+            <li>Calories, macros, and the nutrients a label actually lists</li>
+            <li>Each day keeps the goal that was already in effect</li>
+          </ul>
+        </section>
+        <section className="auth-card">
         <div className="segmented" role="tablist" aria-label="Account">
           <button type="button" aria-selected={!creating} onClick={() => { setMode('login'); setError(''); }}>Log in</button>
           <button type="button" aria-selected={creating} onClick={() => { setMode('register'); setError(''); }}>Create account</button>
@@ -59,7 +67,8 @@ export function AuthScreen({ onAuth }) {
           {error && <p className="banner error" role="alert">{error}</p>}
           <button className="primary" type="submit" disabled={busy}>{busy ? 'Please wait…' : creating ? 'Create account' : 'Log in'}</button>
         </form>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }
