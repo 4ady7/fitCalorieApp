@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api.js';
+import { ThemeSettings } from './ThemeSettings.jsx';
 
 export function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState('login');
@@ -45,6 +46,9 @@ export function AuthScreen({ onAuth }) {
           </ul>
         </section>
         <section className="auth-card">
+        <div className="auth-card-bar">
+          <ThemeSettings />
+        </div>
         <div className="segmented" role="tablist" aria-label="Account">
           <button type="button" aria-selected={!creating} onClick={() => { setMode('login'); setError(''); }}>Log in</button>
           <button type="button" aria-selected={creating} onClick={() => { setMode('register'); setError(''); }}>Create account</button>

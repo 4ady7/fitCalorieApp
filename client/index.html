@@ -8,6 +8,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400..700&family=Fraunces:opsz,wght@9..144,500..700&display=swap" rel="stylesheet" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230e6b74'/%3E%3Cpath d='M8 20.5c2.2-4.8 4.2-7.2 8-7.2s5.8 2.4 8 7.2' fill='none' stroke='%23f3fbfb' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <script>
+      (function () {
+        var allowed = { harbor: 1, orchard: 1, north: 1, ember: 1, ink: 1 };
+        var saved = 'harbor';
+        try { saved = localStorage.getItem('fitcalorie-theme') || saved; } catch (error) {}
+        document.documentElement.dataset.theme = allowed[saved] ? saved : 'harbor';
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

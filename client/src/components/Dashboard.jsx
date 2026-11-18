@@ -3,6 +3,7 @@ import { GOAL_KEYS, NUTRIENT_DEFS, formatNumber, shiftDate, todayISO } from '@sh
 import { api } from '../api.js';
 import { confidenceLabel, formatDay, quantityLabel, shortDay, sourceLabel } from '../format.js';
 import { NutrientTable } from './NutrientTable.jsx';
+import { ThemeSettings } from './ThemeSettings.jsx';
 
 const MACROS = ['protein', 'carbohydrates', 'fat', 'fibre'];
 const MACRO_LABELS = {
@@ -35,6 +36,7 @@ export function Dashboard({ user, date, day, notice, error, aiConfigured, onDate
           </div>
         </div>
         <div className="row">
+          <ThemeSettings />
           <button type="button" className="primary" onClick={onAdd}><span aria-hidden="true">+</span> Add food</button>
           <button type="button" className="ghost" onClick={onLogout}>Log out</button>
         </div>
