@@ -16,6 +16,7 @@ import {
 } from './auth.js';
 import { loadSecret, signReview } from './sign.js';
 import { aiIsConfigured } from './ai.js';
+import { openApiKey, sealApiKey } from './apikey.js';
 import { lookupBarcode, lookupProductUrl, normalizeBarcode } from './lookup.js';
 import { parsePublicUrl } from './security.js';
 import { backfillStoredEntries, freshProduct, rememberProduct } from './catalog.js';
@@ -86,6 +87,14 @@ function passwordOf(value, creating) {
   return password;
 }
 
+function apiKeyOf(value) {
+  const apiKey = String(value ?? '').trim();
+  if (!apiKey) throw new HttpError(400, 'Enter an API key.', 'BAD_API_KEY');
+  if (apiKey.length < 12 || apiKey.length > 400) throw new HttpError(400, 'That API key does not look valid.', 'BAD_API_KEY');
+  if (/\s/.test(apiKey)) throw new HttpError(400, 'An API key cannot contain spaces.', 'BAD_API_KEY');
+  return apiKey;
+}
+
 export function createApp(options = {}) {
   const databasePath = options.databasePath || process.env.DATABASE_PATH || path.join(root, 'data', 'fitcalorie.sqlite');
   const db = options.db || openDatabase(databasePath);
@@ -93,6 +102,20 @@ export function createApp(options = {}) {
   const secret = options.secret || loadSecret(path.dirname(databasePath));
   const lookups = new Map();
   const logins = new Map();
+  const keyWrites = new Map();
+
+  function storedApiKey(userId) {
+    const row = db.prepare('SELECT openai_api_key FROM users WHERE id = ?').get(userId);
+    if (!row?.openai_api_key) return '';
+    return openApiKey(row.openai_api_key, secret);
+  }
+
+  function aiStatus(userId) {
+    if (storedApiKey(userId)) return { configured: true, source: 'account' };
+    if (aiIsConfigured()) return { configured: true, source: 'server' };
+    return { configured: false, source: null };
+  }
+
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '256kb' }));
@@ -155,6 +178,29 @@ export function createApp(options = {}) {
     res.json({ user: publicUser(req.user) });
   });
 
+  app.get('/api/settings/ai', (req, res) => {
+    const user = requireUser(req);
+    res.json(aiStatus(user.id));
+  });
+
+  app.put('/api/settings/ai', asyncRoute(async (req, res) => {
+    assertOrigin(req);
+    const user = requireUser(req);
+    if (!rateLimit(keyWrites, user.id, 10, 10 * 60 * 1000)) {
+      throw new HttpError(429, 'Too many API key updates. Wait a moment and try again.', 'RATE_LIMITED');
+    }
+    const apiKey = apiKeyOf(req.body?.apiKey);
+    db.prepare('UPDATE users SET openai_api_key = ? WHERE id = ?').run(sealApiKey(apiKey, secret), user.id);
+    res.json(aiStatus(user.id));
+  }));
+
+  app.delete('/api/settings/ai', asyncRoute(async (req, res) => {
+    assertOrigin(req);
+    const user = requireUser(req);
+    db.prepare('UPDATE users SET openai_api_key = NULL WHERE id = ?').run(user.id);
+    res.json(aiStatus(user.id));
+  }));
+
   app.get('/api/days/:date', asyncRoute(async (req, res) => {
     const user = requireUser(req);
     res.json(dayPayload(db, user.id, req.params.date));
@@ -211,7 +257,7 @@ export function createApp(options = {}) {
     const pageUrl = parsePublicUrl(req.body?.url).toString();
     let product = freshProduct(db, { source: 'page_structured', sourceReference: pageUrl })
       || freshProduct(db, { source: 'ai', sourceReference: pageUrl });
-    if (!product) product = rememberProduct(db, await lookupProductUrl(pageUrl));
+    if (!product) product = rememberProduct(db, await lookupProductUrl(pageUrl, { apiKey: storedApiKey(user.id) }));
     if (!product) throw new HttpError(502, 'The product could not be stored.', 'CATALOG_FAILED');
     res.json({ product, reviewToken: signReview(user.id, product, secret) });
   }));

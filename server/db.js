@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  openai_api_key TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -222,6 +223,12 @@ export function openDatabase(databasePath) {
     transaction(db, () => {
       backfill(db);
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)').run(new Date().toISOString());
+    });
+  }
+  if (currentVersion(db) < 2) {
+    transaction(db, () => {
+      addColumn(db, 'users', 'openai_api_key', 'TEXT');
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)').run(new Date().toISOString());
     });
   }
   return db;

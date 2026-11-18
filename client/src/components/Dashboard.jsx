@@ -18,7 +18,7 @@ function shownAmount(total, entryCount) {
   return total?.amount ?? null;
 }
 
-export function Dashboard({ user, date, day, notice, error, aiConfigured, onDate, onDay, onNotice, onLogout, onAdd }) {
+export function Dashboard({ user, date, day, notice, error, ai, onAi, onDate, onDay, onNotice, onLogout, onAdd }) {
   const isToday = date === todayISO();
   return (
     <div className="app-shell">
@@ -57,11 +57,9 @@ export function Dashboard({ user, date, day, notice, error, aiConfigured, onDate
               <MacroGrid day={day} />
               <Micros day={day} />
               <EntryList day={day} onDay={onDay} onNotice={onNotice} />
-              {!aiConfigured && (
-                <p className="hint">AI extraction is off until an API key is set on the server. Barcodes and nutrition tables still work, and missing nutrients stay blank.</p>
-              )}
             </>
           )}
+          <ApiKeyPanel ai={ai} onAi={onAi} />
         </main>
       </div>
     </div>
@@ -155,6 +153,77 @@ function Goals({ date, goals, onDay, onNotice }) {
 
 function fromGoals(goals) {
   return Object.fromEntries(GOAL_KEYS.map((key) => [key, goals?.[key] ?? '']));
+}
+
+function apiKeyMessage(ai) {
+  if (ai?.source === 'account') return 'API key saved. It is used when a website is missing nutrients.';
+  if (ai?.configured) return 'An API key is already set on the server. Add your own to use it for this account instead.';
+  return 'If a website is missing some nutrients, please add an API key.';
+}
+
+function ApiKeyPanel({ ai, onAi }) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+  const account = ai?.source === 'account';
+
+  async function save(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setSaved(false);
+    try {
+      const data = await api('/api/settings/ai', { method: 'PUT', body: { apiKey: value.trim() } });
+      setValue('');
+      setSaved(true);
+      onAi(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setError('');
+    setSaved(false);
+    try {
+      onAi(await api('/api/settings/ai', { method: 'DELETE' }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <h2>API key</h2>
+      <p className="hint">{apiKeyMessage(ai)}</p>
+      <form onSubmit={save} className="stack">
+        <label>
+          API key
+          <input
+            type="password"
+            name="openai-api-key"
+            autoComplete="off"
+            spellCheck="false"
+            maxLength={400}
+            value={value}
+            placeholder={account ? 'Paste a new key to replace it' : 'Paste your API key'}
+            onChange={(event) => { setValue(event.target.value); setSaved(false); }}
+            required
+          />
+        </label>
+        {error && <p className="banner error" role="alert">{error}</p>}
+        {saved && <p className="banner success" role="status">API key saved.</p>}
+        <button className="primary" type="submit" disabled={busy || !value.trim()}>{busy ? 'Saving…' : 'Save API key'}</button>
+        {account && <button type="button" onClick={remove} disabled={busy}>Remove API key</button>}
+      </form>
+    </section>
+  );
 }
 
 function Hero({ day, isToday }) {

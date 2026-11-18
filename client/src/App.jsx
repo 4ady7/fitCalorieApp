@@ -26,7 +26,7 @@ export function App() {
   const [user, setUser] = useState(undefined);
   const [date, setDate] = useState(dateFromLocation);
   const [day, setDay] = useState(null);
-  const [aiConfigured, setAiConfigured] = useState(false);
+  const [ai, setAi] = useState({ configured: false, source: null });
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
@@ -38,10 +38,22 @@ export function App() {
         setUser(null);
         if (err.status !== 401) setError(err.message);
       });
-    api('/api/health')
-      .then((data) => setAiConfigured(Boolean(data.aiConfigured)))
-      .catch(() => setAiConfigured(false));
   }, []);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    let cancelled = false;
+    api('/api/settings/ai')
+      .then((data) => {
+        if (!cancelled) setAi({ configured: Boolean(data.configured), source: data.source || null });
+      })
+      .catch(() => {
+        if (!cancelled) setAi({ configured: false, source: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -72,6 +84,7 @@ export function App() {
     await api('/api/auth/logout', { method: 'POST' });
     setUser(null);
     setDay(null);
+    setAi({ configured: false, source: null });
     setNotice('');
     setAdding(false);
   }
@@ -89,7 +102,8 @@ export function App() {
         day={day}
         notice={notice}
         error={error}
-        aiConfigured={aiConfigured}
+        ai={ai}
+        onAi={setAi}
         onDate={chooseDate}
         onDay={setDay}
         onNotice={setNotice}
@@ -100,7 +114,7 @@ export function App() {
         <AddFood
           date={date}
           isToday={date === todayISO()}
-          aiConfigured={aiConfigured}
+          aiConfigured={ai.configured}
           onClose={() => setAdding(false)}
           onAdded={(nextDay, message) => {
             setDay(nextDay);

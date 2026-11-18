@@ -81,7 +81,7 @@ async function fetchPage(url, redirects = 0) {
   return { finalUrl: url.toString(), contentType: type, text: Buffer.concat(chunks).toString('utf8') };
 }
 
-export async function lookupProductUrl(input) {
+export async function lookupProductUrl(input, options = {}) {
   const url = parsePublicUrl(input);
   const page = await fetchPage(url);
   let extracted = { product: null, text: '', title: '' };
@@ -104,11 +104,12 @@ export async function lookupProductUrl(input) {
     sourceText: extracted.text || page.text,
     pageUrl: page.finalUrl,
     hintedName: extracted.title,
+    apiKey: options.apiKey,
   });
   if (!ai.configured) {
     throw new HttpError(
       422,
-      'No nutrition table or structured nutrition data was found on this page. AI extraction is not configured, so nothing was estimated.',
+      'No nutrition table or structured nutrition data was found on this page. If this website is missing some nutrients, add an API key. Nothing was estimated.',
       'NUTRITION_UNAVAILABLE',
       { productName: extracted.title || undefined },
     );

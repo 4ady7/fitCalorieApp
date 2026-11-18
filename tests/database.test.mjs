@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { openApiKey } from '../server/apikey.js';
 import { createApp } from '../server/app.js';
 import { backfillStoredEntries } from '../server/catalog.js';
 import { todayISO } from '../shared/nutrients.js';
@@ -395,6 +396,96 @@ test('keeps private logs and goals separate inside one shared product catalog', 
     assert.equal(app.db.prepare('SELECT COUNT(DISTINCT user_id) AS count FROM food_entries').get().count, 2);
     assert.equal(app.db.prepare(`SELECT COUNT(*) AS count FROM sqlite_master WHERE name = 'users'`).get().count, 1);
   } finally {
+    global.fetch = originalFetch;
+    server.close();
+    app.close();
+  }
+});
+
+test('stores an account API key and uses it when a page has no nutrition table', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  const directory = mkdtempSync(path.join(tmpdir(), 'fitcalorie-key-'));
+  const secret = 'api-key-test-secret';
+  const apiKey = 'sk-test-user-key-1234567890';
+  const calls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    const address = String(url);
+    if (address.startsWith('https://api.openai.com/')) {
+      calls.push(options?.headers?.authorization || '');
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              productName: 'Plain oats',
+              basis: null,
+              nutrients: { calories: { amount: 120, unit: 'kcal' } },
+            }),
+          },
+        }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (address === 'http://1.1.1.1/plain-oats') {
+      return new Response('<html><title>Plain oats</title><body><p>Energy 120 kcal</p></body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+    return originalFetch(url, options);
+  };
+
+  const app = createApp({
+    databasePath: path.join(directory, 'fitcalorie.sqlite'),
+    secret,
+  });
+  const server = app.app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const ada = cookieClient(base);
+  const ben = cookieClient(base);
+  const guest = cookieClient(base);
+  try {
+    assert.equal((await guest.request('/api/settings/ai')).status, 401);
+    assert.equal((await ada.request('/api/auth/register', {
+      method: 'POST',
+      body: { email: 'ada.key@example.com', password: 'correct-horse' },
+    })).status, 201);
+    assert.equal((await ben.request('/api/auth/register', {
+      method: 'POST',
+      body: { email: 'ben.key@example.com', password: 'correct-horse' },
+    })).status, 201);
+
+    assert.deepEqual((await ada.request('/api/settings/ai')).data, { configured: false, source: null });
+    assert.equal((await ada.request('/api/settings/ai', { method: 'PUT', body: { apiKey: 'short' } })).status, 400);
+    const page = 'http://1.1.1.1/plain-oats';
+    const blocked = await ada.request('/api/lookup/url', { method: 'POST', body: { url: page } });
+    assert.equal(blocked.status, 422);
+    assert.equal(blocked.data.code, 'NUTRITION_UNAVAILABLE');
+    assert.equal(calls.length, 0);
+
+    const saved = await ada.request('/api/settings/ai', { method: 'PUT', body: { apiKey } });
+    assert.equal(saved.status, 200);
+    assert.deepEqual(saved.data, { configured: true, source: 'account' });
+    assert.equal(JSON.stringify(saved.data).includes(apiKey), false);
+    const stored = app.db.prepare('SELECT openai_api_key FROM users WHERE email = ?').get('ada.key@example.com');
+    assert.equal(String(stored.openai_api_key).includes(apiKey), false);
+    assert.equal(openApiKey(stored.openai_api_key, secret), apiKey);
+    assert.deepEqual((await ben.request('/api/settings/ai')).data, { configured: false, source: null });
+
+    const extracted = await ada.request('/api/lookup/url', { method: 'POST', body: { url: page } });
+    assert.equal(extracted.status, 200, JSON.stringify(extracted.data));
+    assert.equal(extracted.data.product.provenance.provider, 'ai');
+    assert.equal(extracted.data.product.nutrients.calories.amount, 120);
+    assert.deepEqual(calls, [`Bearer ${apiKey}`]);
+    assert.equal(JSON.stringify(extracted.data).includes(apiKey), false);
+
+    const cleared = await ada.request('/api/settings/ai', { method: 'DELETE' });
+    assert.deepEqual(cleared.data, { configured: false, source: null });
+    assert.equal(app.db.prepare('SELECT openai_api_key FROM users WHERE email = ?').get('ada.key@example.com').openai_api_key, null);
+  } finally {
+    if (previousKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
     global.fetch = originalFetch;
     server.close();
     app.close();

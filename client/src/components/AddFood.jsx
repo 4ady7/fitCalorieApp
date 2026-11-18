@@ -329,7 +329,7 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
             <p className="hint">
               {aiConfigured
                 ? 'A nutrition table or structured product data is used first. AI is only asked to copy numbers that are actually written on the page.'
-                : 'Nutrition tables and structured product data are read automatically. Set OPENAI_API_KEY on the server to extract numbers from pages that have no table. Missing values are never guessed.'}
+                : 'Nutrition tables and structured product data are read automatically. If a website is missing some nutrients, add an API key on the dashboard. Missing values are never guessed.'}
             </p>
             <button className="primary" type="submit" disabled={Boolean(loading)}>Look up link</button>
           </form>

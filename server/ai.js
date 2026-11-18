@@ -17,8 +17,14 @@ const BASIS_EVIDENCE = {
   per_product: /per\s+(pack|package|product|item|bar|bottle|pot)\b/i,
 };
 
-function aiConfigured() {
-  return Boolean(process.env.OPENAI_API_KEY);
+function activeApiKey(apiKey) {
+  const provided = typeof apiKey === 'string' ? apiKey.trim() : '';
+  if (provided) return provided;
+  return String(process.env.OPENAI_API_KEY || '').trim();
+}
+
+function aiConfigured(apiKey) {
+  return Boolean(activeApiKey(apiKey));
 }
 
 function schemaHint() {
@@ -30,9 +36,10 @@ function schemaHint() {
   };
 }
 
-async function complete(messages) {
+async function complete(messages, apiKey) {
   const base = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
   const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const key = activeApiKey(apiKey);
   const body = {
     model,
     temperature: 0,
@@ -41,7 +48,7 @@ async function complete(messages) {
   const send = (payload) => fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      authorization: `Bearer ${key}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify(payload),
@@ -151,8 +158,8 @@ export function groundAiProduct(model, sourceText, pageUrl, hintedName) {
   };
 }
 
-export async function extractNutritionWithAi({ sourceText, pageUrl, hintedName }) {
-  if (!aiConfigured()) return { configured: false, product: null };
+export async function extractNutritionWithAi({ sourceText, pageUrl, hintedName, apiKey }) {
+  if (!aiConfigured(apiKey)) return { configured: false, product: null };
   const excerpt = String(sourceText || '').slice(0, 12000);
   if (!excerpt.trim()) return { configured: true, product: null };
   const content = await complete([
@@ -173,7 +180,7 @@ Use this shape: ${JSON.stringify(schemaHint())}`,
       role: 'user',
       content: `Page: ${pageUrl}\n\n${excerpt}`,
     },
-  ]);
+  ], apiKey);
   const model = parseModelJson(content);
   return { configured: true, product: groundAiProduct(model, excerpt, pageUrl, hintedName) };
 }
