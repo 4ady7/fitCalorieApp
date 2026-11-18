@@ -186,6 +186,7 @@ function ApiKeyPanel({ ai, onAi }) {
   }
 
   async function remove() {
+    if (!window.confirm('Are you sure you want to delete the API key?')) return;
     setBusy(true);
     setError('');
     setSaved(false);
