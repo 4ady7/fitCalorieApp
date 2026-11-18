@@ -26,7 +26,7 @@ export function Dashboard({ user, date, day, notice, error, aiConfigured, onDate
           <span className="mark" aria-hidden="true">
             <svg viewBox="0 0 32 32" width="34" height="34">
               <rect width="32" height="32" rx="10" fill="currentColor" />
-              <path d="M8 20.5c2.2-4.8 4.2-7.2 8-7.2s5.8 2.4 8 7.2" fill="none" stroke="#f6f3ea" strokeWidth="2.4" strokeLinecap="round" />
+              <path d="M8 20.5c2.2-4.8 4.2-7.2 8-7.2s5.8 2.4 8 7.2" fill="none" stroke="var(--on-accent)" strokeWidth="2.4" strokeLinecap="round" />
             </svg>
           </span>
           <div>
