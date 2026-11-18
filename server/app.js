@@ -16,7 +16,9 @@ import {
 } from './auth.js';
 import { loadSecret, signReview } from './sign.js';
 import { aiIsConfigured } from './ai.js';
-import { lookupBarcode, lookupProductUrl } from './lookup.js';
+import { lookupBarcode, lookupProductUrl, normalizeBarcode } from './lookup.js';
+import { parsePublicUrl } from './security.js';
+import { backfillStoredEntries, freshProduct, rememberProduct } from './catalog.js';
 import { addEntry, dayPayload, deleteEntry, saveGoals, updateEntry } from './entries.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -87,6 +89,7 @@ function passwordOf(value, creating) {
 export function createApp(options = {}) {
   const databasePath = options.databasePath || process.env.DATABASE_PATH || path.join(root, 'data', 'fitcalorie.sqlite');
   const db = options.db || openDatabase(databasePath);
+  backfillStoredEntries(db);
   const secret = options.secret || loadSecret(path.dirname(databasePath));
   const lookups = new Map();
   const logins = new Map();
@@ -188,7 +191,10 @@ export function createApp(options = {}) {
     if (!rateLimit(lookups, user.id, 40, 10 * 60 * 1000)) {
       throw new HttpError(429, 'Too many product lookups. Wait a moment and try again.', 'RATE_LIMITED');
     }
-    const product = await lookupBarcode(req.body?.barcode);
+    const barcode = normalizeBarcode(req.body?.barcode);
+    let product = freshProduct(db, { barcode });
+    if (!product) product = rememberProduct(db, await lookupBarcode(barcode));
+    if (!product) throw new HttpError(502, 'The product could not be stored.', 'CATALOG_FAILED');
     res.json({ product, reviewToken: signReview(user.id, product, secret) });
   }));
 
@@ -198,7 +204,11 @@ export function createApp(options = {}) {
     if (!rateLimit(lookups, user.id, 40, 10 * 60 * 1000)) {
       throw new HttpError(429, 'Too many product lookups. Wait a moment and try again.', 'RATE_LIMITED');
     }
-    const product = await lookupProductUrl(req.body?.url);
+    const pageUrl = parsePublicUrl(req.body?.url).toString();
+    let product = freshProduct(db, { source: 'page_structured', sourceReference: pageUrl })
+      || freshProduct(db, { source: 'ai', sourceReference: pageUrl });
+    if (!product) product = rememberProduct(db, await lookupProductUrl(pageUrl));
+    if (!product) throw new HttpError(502, 'The product could not be stored.', 'CATALOG_FAILED');
     res.json({ product, reviewToken: signReview(user.id, product, secret) });
   }));
 

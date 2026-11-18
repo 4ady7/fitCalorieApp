@@ -9,7 +9,15 @@ import {
   sanitizeNutrientMap,
   sumExtras,
   sumNutrientMaps,
+  todayISO,
 } from '../shared/nutrients.js';
+import {
+  consumedFromNutrientRows,
+  entryNutrients,
+  writeEntryNutrients,
+  writeProduct,
+} from './catalog.js';
+import { transaction } from './db.js';
 import { HttpError } from './errors.js';
 import { readReview } from './sign.js';
 
@@ -39,26 +47,20 @@ function parseKey(key) {
   return key;
 }
 
-function transaction(db, fn) {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const result = fn();
-    db.exec('COMMIT');
-    return result;
-  } catch (error) {
-    try { db.exec('ROLLBACK'); } catch { /* the original error is the one to report */ }
-    throw error;
-  }
-}
-
-function presentEntry(row) {
-  const consumed = JSON.parse(row.consumed_json);
+function presentEntry(row, nutrientRows) {
+  const relational = consumedFromNutrientRows(nutrientRows);
+  const consumed = relational || JSON.parse(row.consumed_json);
   return {
     id: row.id,
+    productId: row.product_id || null,
     date: row.entry_date,
+    consumedAt: row.consumed_at,
     name: row.name,
     quantity: row.quantity,
     quantityUnit: row.quantity_unit,
+    servingAmount: row.serving_amount,
+    servingUnit: row.serving_unit,
+    servingLabel: row.serving_label,
     calories: consumed.nutrients.calories,
     nutrients: consumed.nutrients,
     extras: consumed.extras,
@@ -70,32 +72,84 @@ function presentEntry(row) {
 }
 
 function listEntries(db, userId, date) {
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT * FROM food_entries
     WHERE user_id = ? AND entry_date = ?
     ORDER BY created_at ASC, id ASC
-  `).all(userId, date).map(presentEntry);
+  `).all(userId, date);
+  const nutrients = entryNutrients(db, rows.map((row) => row.id));
+  return rows.map((row) => presentEntry(row, nutrients.get(row.id)));
 }
 
-export function getGoals(db, userId) {
-  const row = db.prepare('SELECT targets_json FROM goals WHERE user_id = ?').get(userId);
-  if (!row) return sanitizeGoals({});
-  return sanitizeGoals(JSON.parse(row.targets_json));
+function goalMap(db, row) {
+  const map = {};
+  if (!row) return sanitizeGoals(map);
+  for (const key of ['calories', 'protein', 'carbohydrates', 'fat', 'fibre']) {
+    if (row[key] != null) map[key] = row[key];
+  }
+  const targets = db.prepare('SELECT nutrient_key, amount FROM goal_nutrient_targets WHERE goal_id = ?').all(row.id);
+  for (const target of targets) {
+    if (target.amount != null) map[target.nutrient_key] = target.amount;
+  }
+  return sanitizeGoals(map);
+}
+
+export function getGoals(db, userId, date = todayISO()) {
+  const row = db.prepare(`
+    SELECT * FROM daily_goals
+    WHERE user_id = ? AND effective_date <= ?
+    ORDER BY effective_date DESC
+    LIMIT 1
+  `).get(userId, date);
+  return goalMap(db, row);
 }
 
 export function saveGoals(db, userId, input) {
+  const source = input && typeof input === 'object' ? { ...input } : {};
+  const requestedDate = source.effectiveDate;
+  delete source.effectiveDate;
+  delete source.userId;
   let targets;
+  let effectiveDate = todayISO();
   try {
-    targets = sanitizeGoals(input);
+    if (requestedDate != null) effectiveDate = assertDate(requestedDate);
+    targets = sanitizeGoals(source);
   } catch (error) {
     bad(error);
   }
   const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO goals (user_id, targets_json, updated_at)
-    VALUES (?, ?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET targets_json = excluded.targets_json, updated_at = excluded.updated_at
-  `).run(userId, JSON.stringify(targets), now);
+  const id = randomUUID();
+  transaction(db, () => {
+    db.prepare(`
+      INSERT INTO daily_goals (
+        id, user_id, effective_date, calories, protein, carbohydrates, fat, fibre, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, effective_date) DO UPDATE SET
+        calories = excluded.calories,
+        protein = excluded.protein,
+        carbohydrates = excluded.carbohydrates,
+        fat = excluded.fat,
+        fibre = excluded.fibre,
+        updated_at = excluded.updated_at
+    `).run(
+      id,
+      userId,
+      effectiveDate,
+      targets.calories,
+      targets.protein,
+      targets.carbohydrates,
+      targets.fat,
+      targets.fibre,
+      now,
+      now,
+    );
+    const saved = db.prepare('SELECT id FROM daily_goals WHERE user_id = ? AND effective_date = ?').get(userId, effectiveDate);
+    db.prepare('DELETE FROM goal_nutrient_targets WHERE goal_id = ?').run(saved.id);
+    const insert = db.prepare('INSERT INTO goal_nutrient_targets (goal_id, nutrient_key, amount) VALUES (?, ?, ?)');
+    for (const [key, amount] of Object.entries(targets)) {
+      if (amount != null) insert.run(saved.id, key, amount);
+    }
+  });
   return targets;
 }
 
@@ -121,7 +175,7 @@ export function dayPayload(db, userId, date) {
     entries,
     totals: sumNutrientMaps(entries.map((entry) => entry.nutrients)),
     extras: sumExtras(entries.map((entry) => entry.extras)),
-    goals: getGoals(db, userId),
+    goals: getGoals(db, userId, parseDate(date)),
     history: listHistory(db, userId),
     entryCount: entries.length,
   };
@@ -144,24 +198,45 @@ function consume(snapshot, quantity, quantityUnit) {
   }
 }
 
+function consumedAtFor(date) {
+  if (date === todayISO()) return new Date().toISOString();
+  return `${date}T12:00:00.000Z`;
+}
+
 function insertRow(db, { userId, date, name, quantity, quantityUnit, snapshot, consumed, provenance, idempotencyKey }) {
   const now = new Date().toISOString();
   const id = randomUUID();
   const write = () => {
     const existing = db.prepare('SELECT * FROM food_entries WHERE user_id = ? AND idempotency_key = ?').get(userId, idempotencyKey);
     if (existing) return { duplicate: true, row: existing };
+    const catalog = writeProduct(db, {
+      name,
+      brand: null,
+      description: null,
+      basis: snapshot.basis,
+      nutrients: snapshot.nutrients,
+      extras: snapshot.extras,
+      serving: snapshot.serving,
+      provenance,
+    });
     db.prepare(`
       INSERT INTO food_entries (
-        id, user_id, entry_date, name, quantity, quantity_unit, calories_kcal,
+        id, user_id, product_id, entry_date, consumed_at, name, quantity, quantity_unit,
+        serving_amount, serving_unit, serving_label, calories_kcal,
         snapshot_json, consumed_json, provenance_json, idempotency_key, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       userId,
+      catalog?.catalogId || null,
       date,
+      consumedAtFor(date),
       name,
       quantity,
       quantityUnit,
+      snapshot.serving?.amount ?? null,
+      snapshot.serving?.unit ?? null,
+      snapshot.serving?.label ?? null,
       consumed.nutrients.calories.amount,
       JSON.stringify(snapshot),
       JSON.stringify({ nutrients: consumed.nutrients, extras: consumed.extras }),
@@ -170,7 +245,8 @@ function insertRow(db, { userId, date, name, quantity, quantityUnit, snapshot, c
       now,
       now,
     );
-    return { duplicate: false, row: db.prepare('SELECT * FROM food_entries WHERE id = ?').get(id) };
+    writeEntryNutrients(db, id, consumed);
+    return { duplicate: false, row: db.prepare('SELECT * FROM food_entries WHERE id = ? AND user_id = ?').get(id, userId) };
   };
   try {
     return transaction(db, write);
@@ -335,9 +411,10 @@ export function addEntry(db, userId, secret, body) {
   }
   const consumed = consume(snapshot, quantity, quantityUnit);
   const saved = insertRow(db, { userId, date, name, quantity, quantityUnit, snapshot, consumed, provenance, idempotencyKey });
+  const nutrients = db.prepare('SELECT * FROM food_entry_nutrients WHERE entry_id = ?').all(saved.row.id);
   return {
     duplicate: saved.duplicate,
-    entry: presentEntry(saved.row),
+    entry: presentEntry(saved.row, nutrients),
     day: dayPayload(db, userId, saved.row.entry_date),
   };
 }
@@ -351,20 +428,26 @@ export function updateEntry(db, userId, entryId, body) {
   const quantityUnit = body?.quantityUnit == null ? row.quantity_unit : body.quantityUnit;
   const consumed = consume(snapshot, quantity, quantityUnit);
   const now = new Date().toISOString();
-  db.prepare(`
-    UPDATE food_entries
-    SET name = ?, quantity = ?, quantity_unit = ?, calories_kcal = ?, consumed_json = ?, updated_at = ?
-    WHERE id = ? AND user_id = ?
-  `).run(
-    name,
-    quantity,
-    quantityUnit,
-    consumed.nutrients.calories.amount,
-    JSON.stringify({ nutrients: consumed.nutrients, extras: consumed.extras }),
-    now,
-    entryId,
-    userId,
-  );
+  transaction(db, () => {
+    const result = db.prepare(`
+      UPDATE food_entries
+      SET name = ?, quantity = ?, quantity_unit = ?, calories_kcal = ?, consumed_json = ?, updated_at = ?
+      WHERE id = ? AND user_id = ?
+    `).run(
+      name,
+      quantity,
+      quantityUnit,
+      consumed.nutrients.calories.amount,
+      JSON.stringify({ nutrients: consumed.nutrients, extras: consumed.extras }),
+      now,
+      entryId,
+      userId,
+    );
+    if (typeof result.changes === 'number' && result.changes !== 1) {
+      throw new HttpError(404, 'That food entry was not found.', 'NOT_FOUND');
+    }
+    writeEntryNutrients(db, entryId, consumed);
+  });
   return dayPayload(db, userId, row.entry_date);
 }
 
