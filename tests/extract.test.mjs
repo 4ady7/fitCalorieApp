@@ -133,3 +133,89 @@ test('AI grounding keeps numbers present in the source and drops invented ones',
   assert.equal(numberAppears(250, source), true);
   assert.equal(numberAppears(99, source), false);
 });
+
+function groceryPage({ name, size, table }) {
+  return `<!doctype html><html><head><title>${name} - Shop</title>
+    <script type="application/ld+json">{"@type":"Product","name":"${name}","size":"${size}"}</script>
+    </head><body><h1>${name}</h1>${table}</body></html>`;
+}
+
+test('keeps a per 100 g column separate from a half-pack column and the reference intake', () => {
+  const html = groceryPage({
+    name: 'Morrisons Hunters Chicken 430g',
+    size: '430g',
+    table: `<table>
+      <tr><th>Typical Values</th><th>(as consumed) per 100g</th><th>(as consumed) per 1/2 pack (195g)</th><th>%RI</th><th>your RI*</th></tr>
+      <tr><td>Energy</td><td>581kJ/138kcal</td><td>1133kJ/269kcal</td><td>13%</td><td>8400kJ/2000kcal</td></tr>
+      <tr><td>Fat</td><td>4.8g</td><td>9.4g</td><td>13%</td><td>70g</td></tr>
+      <tr><td>of which saturates</td><td>2.1g</td><td>4.1g</td><td>20%</td><td>20g</td></tr>
+      <tr><td>Carbohydrate</td><td>3.4g</td><td>6.6g</td><td></td><td></td></tr>
+      <tr><td>of which sugars</td><td>3.3g</td><td>6.4g</td><td>7%</td><td>90g</td></tr>
+      <tr><td>Fibre</td><td>0.5g</td><td>1g</td><td></td><td></td></tr>
+      <tr><td>Protein</td><td>20.1g</td><td>39.2g</td><td></td><td></td></tr>
+      <tr><td>Salt</td><td>0.54g</td><td>1.05g</td><td>18%</td><td>6g</td></tr>
+    </table>`,
+  });
+  const { product } = extractProductFromHtml(html, 'https://groceries.example/hunters');
+  assert.equal(product.name, 'Morrisons Hunters Chicken 430g');
+  assert.equal(product.basis.type, 'per_100g');
+  assert.equal(product.nutrients.calories.amount, 138);
+  assert.equal(product.nutrients.protein.amount, 20.1);
+  assert.equal(product.nutrients.carbohydrates.amount, 3.4);
+  assert.equal(product.nutrients.fat.amount, 4.8);
+  assert.equal(product.nutrients.saturated_fat.amount, 2.1);
+  assert.equal(product.nutrients.fibre.amount, 0.5);
+  assert.equal(product.nutrients.sugars.amount, 3.3);
+  assert.equal(product.nutrients.salt.amount, 0.54);
+  assert.equal(product.nutrients.sodium, null);
+  assert.equal(product.serving.label, '1/2 pack (195 g)');
+  assert.equal(product.serving.nutrients.calories.amount, 269);
+  const eaten = consumedFromSnapshot(product, 195, 'g');
+  assert.equal(eaten.nutrients.calories.amount, 269.1);
+  assert.equal(eaten.nutrients.protein.amount, 39.195);
+  assert.equal(eaten.nutrients.carbohydrates.amount, 6.63);
+  assert.equal(eaten.nutrients.fat.amount, 9.36);
+  assert.equal(eaten.nutrients.saturated_fat.amount, 4.095);
+  assert.equal(eaten.nutrients.fibre.amount, 0.975);
+  assert.equal(eaten.nutrients.sugars.amount, 6.435);
+  assert.equal(eaten.nutrients.salt.amount, 1.053);
+  assert.equal(eaten.nutrients.sodium, null);
+  const half = consumedFromSnapshot(product, 1, 'serving');
+  assert.equal(half.nutrients.calories.amount, 269);
+  assert.equal(half.nutrients.protein.amount, 39.2);
+});
+
+test('keeps a per pack column as one serving instead of treating it as per 100 g', () => {
+  const html = groceryPage({
+    name: 'Morrisons Chicken Tikka Masala & Rice',
+    size: '400g',
+    table: `<table>
+      <tr><th>Typical Values</th><th>(Microwaved) per 100g</th><th>(Microwaved) per pack</th><th>%RI</th><th>your RI*</th></tr>
+      <tr><td>Energy</td><td>629kJ/150kcal</td><td>2378kJ/566kcal</td><td>28%</td><td>8400kJ/2000kcal</td></tr>
+      <tr><td>Fat</td><td>5.1g</td><td>19.3g</td><td>28%</td><td>70g</td></tr>
+      <tr><td>of which saturates</td><td>1.5g</td><td>5.7g</td><td>28%</td><td>20g</td></tr>
+      <tr><td>Carbohydrate</td><td>17.7g</td><td>66.9g</td><td></td><td></td></tr>
+      <tr><td>of which sugars</td><td>3.1g</td><td>11.7g</td><td>13%</td><td>90g</td></tr>
+      <tr><td>Fibre</td><td>1.1g</td><td>4.2g</td><td></td><td></td></tr>
+      <tr><td>Protein</td><td>7.7g</td><td>29.1g</td><td></td><td></td></tr>
+      <tr><td>Salt</td><td>0.48g</td><td>1.81g</td><td>30%</td><td>6g</td></tr>
+    </table>`,
+  });
+  const { product } = extractProductFromHtml(html, 'https://groceries.example/tikka');
+  assert.equal(product.basis.type, 'per_100g');
+  assert.equal(product.nutrients.calories.amount, 150);
+  assert.equal(product.serving.label, '1 pack');
+  assert.equal(product.serving.unit, 'product');
+  const pack = consumedFromSnapshot(product, 1, 'serving');
+  assert.equal(pack.nutrients.calories.amount, 566);
+  assert.equal(pack.nutrients.protein.amount, 29.1);
+  assert.equal(pack.nutrients.carbohydrates.amount, 66.9);
+  assert.equal(pack.nutrients.fat.amount, 19.3);
+  assert.equal(pack.nutrients.saturated_fat.amount, 5.7);
+  assert.equal(pack.nutrients.fibre.amount, 4.2);
+  assert.equal(pack.nutrients.sugars.amount, 11.7);
+  assert.equal(pack.nutrients.salt.amount, 1.81);
+  assert.equal(pack.nutrients.sodium, null);
+  const soldWeight = consumedFromSnapshot(product, 400, 'g');
+  assert.equal(soldWeight.nutrients.calories.amount, 600);
+});

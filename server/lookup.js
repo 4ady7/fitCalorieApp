@@ -4,7 +4,9 @@ import { fetchOffProduct } from './openfoodfacts.js';
 import { extractProductFromHtml } from './extract.js';
 import { extractNutritionWithAi } from './ai.js';
 
-const PAGE_USER_AGENT = 'FitCalorie/1.0 (personal nutrition tracker; product page reader)';
+// Grocery CDNs reject a non-browser user agent with 403. This is still a single
+// fetch of the product URL the user pasted.
+const PAGE_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const MAX_BYTES = 1_500_000;
 
 export function normalizeBarcode(input) {
@@ -37,7 +39,8 @@ async function fetchPage(url, redirects = 0) {
       redirect: 'manual',
       headers: {
         'user-agent': PAGE_USER_AGENT,
-        accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.1',
+        accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+        'accept-language': 'en-GB,en;q=0.9',
       },
       signal: AbortSignal.timeout(12000),
     });

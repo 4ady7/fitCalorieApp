@@ -71,7 +71,7 @@ export function roundAmount(amount, decimals = 4) {
 
 export function formatNumber(amount, unit) {
   if (amount == null || Number.isNaN(amount)) return null;
-  const digits = unit === 'kcal' ? 1 : Math.abs(amount) > 0 && Math.abs(amount) < 1 ? 3 : 2;
+  const digits = unit === 'kcal' ? 1 : 3;
   const factor = 10 ** digits;
   const rounded = Math.round((amount + Number.EPSILON) * factor) / factor;
   const [whole, fraction] = String(rounded).split('.');
