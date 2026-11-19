@@ -185,6 +185,62 @@ test('keeps a per 100 g column separate from a half-pack column and the referenc
   assert.equal(half.nutrients.protein.amount, 39.2);
 });
 
+test('reads a multivitamin tablet table when calories and carbohydrates are absent', () => {
+  const html = groceryPage({
+    name: 'Morrisons A-Z Multi Vitamins',
+    size: '60 per pack',
+    table: `<table>
+      <tr><th>Typical Values</th><th>Each tablet provides</th><th>% Adult RI</th></tr>
+      <tr><td>Vitamin A</td><td>800µg RE</td><td>100</td></tr>
+      <tr><td>Vitamin D₃</td><td>5µg</td><td>100</td></tr>
+      <tr><td>Vitamin E</td><td>12mg α-TE</td><td>100</td></tr>
+      <tr><td>Vitamin K</td><td>75µg</td><td>100</td></tr>
+      <tr><td>Vitamin C</td><td>80mg</td><td>100</td></tr>
+      <tr><td>Thiamin (Vitamin B1)</td><td>1.1mg</td><td>100</td></tr>
+      <tr><td>Riboflavin (Vitamin B2)</td><td>1.4mg</td><td>100</td></tr>
+      <tr><td>Niacin</td><td>16mg NE</td><td>100</td></tr>
+      <tr><td>Vitamin B6</td><td>1.4mg</td><td>100</td></tr>
+      <tr><td>Folic acid</td><td>200µg</td><td>100</td></tr>
+      <tr><td>Vitamin B12</td><td>2.5µg</td><td>100</td></tr>
+      <tr><td>Biotin</td><td>50µg</td><td>100</td></tr>
+      <tr><td>Pantothenic acid</td><td>6mg</td><td>100</td></tr>
+      <tr><td>Calcium</td><td>240mg</td><td>30</td></tr>
+      <tr><td>Magnesium</td><td>120mg</td><td>32</td></tr>
+      <tr><td>Iron</td><td>14mg</td><td>100</td></tr>
+      <tr><td>Zinc</td><td>10mg</td><td>100</td></tr>
+      <tr><td>Copper</td><td>1mg</td><td>100</td></tr>
+      <tr><td>Manganese</td><td>2mg</td><td>100</td></tr>
+      <tr><td>Selenium</td><td>55µg</td><td>100</td></tr>
+      <tr><td>Chromium</td><td>40µg</td><td>100</td></tr>
+      <tr><td>Molybdenum</td><td>50µg</td><td>100</td></tr>
+      <tr><td>Iodine</td><td>150µg</td><td>100</td></tr>
+    </table>`,
+  });
+  const { product } = extractProductFromHtml(html, 'https://groceries.morrisons.com/products/morrisons-a-z-multi-vitamins/108615040');
+  assert.equal(product.basis.type, 'per_serving');
+  assert.equal(product.nutrients.calories, null);
+  assert.equal(product.nutrients.carbohydrates, null);
+  assert.equal(product.nutrients.protein, null);
+  assert.equal(product.nutrients.fat, null);
+  assert.equal(product.nutrients.vitamin_a.amount, 800);
+  assert.equal(product.nutrients.vitamin_d.amount, 5);
+  assert.equal(product.nutrients.vitamin_c.amount, 80);
+  assert.equal(product.nutrients.vitamin_b12.amount, 2.5);
+  assert.equal(product.nutrients.calcium.amount, 240);
+  assert.equal(product.nutrients.iron.amount, 14);
+  const extras = Object.fromEntries(product.extras.map((item) => [item.key, item.amount]));
+  assert.equal(extras.vitamin_k, 75);
+  assert.equal(extras.vitamin_b1, 1.1);
+  assert.equal(extras.biotin, 50);
+  assert.equal(extras.pantothenic_acid, 6);
+  assert.equal(extras.chromium, 40);
+  assert.equal(extras.molybdenum, 50);
+  const eaten = consumedFromSnapshot(product, 1, 'serving');
+  assert.equal(eaten.nutrients.calories, null);
+  assert.equal(eaten.nutrients.carbohydrates, null);
+  assert.equal(eaten.nutrients.vitamin_c.amount, 80);
+});
+
 test('keeps a per pack column as one serving instead of treating it as per 100 g', () => {
   const html = groceryPage({
     name: 'Morrisons Chicken Tikka Masala & Rice',

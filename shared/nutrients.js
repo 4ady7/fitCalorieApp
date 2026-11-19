@@ -119,10 +119,14 @@ export function scaleExtras(extras, factor) {
   }));
 }
 
+function hasRecordedNutrient(nutrients) {
+  return Boolean(nutrients) && Object.values(nutrients).some((value) => value != null);
+}
+
 export function servingAvailable(snapshot) {
   const serving = snapshot?.serving;
   if (!serving || !(serving.amount > 0)) return false;
-  if (serving.nutrients?.calories) return true;
+  if (hasRecordedNutrient(serving.nutrients)) return true;
   return serving.unit === snapshot.basis?.referenceUnit;
 }
 
@@ -142,7 +146,7 @@ export function consumedFromSnapshot(snapshot, quantity, quantityUnit) {
 
   if (quantityUnit === 'serving' && snapshot.serving) {
     const serving = snapshot.serving;
-    if (serving.nutrients?.calories) {
+    if (hasRecordedNutrient(serving.nutrients) || (serving.extras || []).length > 0) {
       return pack(scaleMap(serving.nutrients, quantity), scaleExtras(serving.extras, quantity), quantity, serving.label || 'per serving');
     }
     if (serving.unit === basis.referenceUnit) {
@@ -160,9 +164,6 @@ export function consumedFromSnapshot(snapshot, quantity, quantityUnit) {
 }
 
 function pack(nutrients, extras, factor, basisLabel) {
-  if (nutrients.calories == null) {
-    throw new Error('Calories were not available, so this item cannot be added to the log.');
-  }
   return { nutrients, extras, factor: roundAmount(factor), basisLabel };
 }
 

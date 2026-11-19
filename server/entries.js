@@ -285,10 +285,14 @@ export function dayPayload(db, userId, date) {
   };
 }
 
-function guardCalories(consumed) {
+function storedCalories(consumed) {
   const calories = consumed?.nutrients?.calories?.amount;
-  if (calories == null) throw new HttpError(400, 'Calories were not available, so this item cannot be added.', 'CALORIES_REQUIRED');
-  if (calories > 20000) {
+  return calories == null ? null : calories;
+}
+
+function guardCalories(consumed) {
+  const calories = storedCalories(consumed);
+  if (calories != null && calories > 20000) {
     throw new HttpError(400, 'That quantity produces an unrealistic calorie total. Check the amount.', 'CALORIES_TOO_HIGH');
   }
   return consumed;
@@ -341,7 +345,7 @@ function insertRow(db, { userId, date, name, quantity, quantityUnit, snapshot, c
       snapshot.serving?.amount ?? null,
       snapshot.serving?.unit ?? null,
       snapshot.serving?.label ?? null,
-      consumed.nutrients.calories.amount,
+      storedCalories(consumed),
       JSON.stringify(snapshot),
       JSON.stringify({ nutrients: consumed.nutrients, extras: consumed.extras }),
       JSON.stringify(provenance),
@@ -541,7 +545,7 @@ export function updateEntry(db, userId, entryId, body) {
       name,
       quantity,
       quantityUnit,
-      consumed.nutrients.calories.amount,
+      storedCalories(consumed),
       JSON.stringify({ nutrients: consumed.nutrients, extras: consumed.extras }),
       now,
       entryId,

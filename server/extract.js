@@ -28,11 +28,11 @@ const LABEL_RULES = [
   [/^iron$/, 'iron'],
   [/^magnesium$/, 'magnesium'],
   [/^zinc$/, 'zinc'],
-  [/^vitamin a$/, 'vitamin_a'],
+  [/^vitamin a\d*$/, 'vitamin_a'],
   [/^vitamin c$/, 'vitamin_c'],
-  [/^vitamin d$/, 'vitamin_d'],
-  [/^vitamin e$/, 'vitamin_e'],
-  [/^(vitamin b12|vitamin b-12)$/, 'vitamin_b12'],
+  [/^vitamin e\d*$/, 'vitamin_e'],
+  [/^vitamin d\d*$/, 'vitamin_d'],
+  [/^(vitamin b12|vitamin b-12|vitamin b 12)$/, 'vitamin_b12'],
 ];
 
 const EXTRA_RULES = [
@@ -42,20 +42,33 @@ const EXTRA_RULES = [
   [/^(vitamin b3|niacin)$/, 'vitamin_b3', 'Vitamin B3', 'mg'],
   [/^vitamin b6$/, 'vitamin_b6', 'Vitamin B6', 'mg'],
   [/^(vitamin b9|folate|folic acid)$/, 'vitamin_b9', 'Vitamin B9', 'µg'],
-  [/^vitamin k$/, 'vitamin_k', 'Vitamin K', 'µg'],
+  [/^vitamin k\d*$/, 'vitamin_k', 'Vitamin K', 'µg'],
+  [/^pantothenic acid$/, 'pantothenic_acid', 'Pantothenic acid', 'mg'],
+  [/^biotin$/, 'biotin', 'Biotin', 'µg'],
   [/^phosphorus$/, 'phosphorus', 'Phosphorus', 'mg'],
   [/^iodine$/, 'iodine', 'Iodine', 'µg'],
   [/^selenium$/, 'selenium', 'Selenium', 'µg'],
   [/^copper$/, 'copper', 'Copper', 'mg'],
   [/^manganese$/, 'manganese', 'Manganese', 'mg'],
+  [/^chromium$/, 'chromium', 'Chromium', 'µg'],
+  [/^molybdenum$/, 'molybdenum', 'Molybdenum', 'µg'],
 ];
 
 export function cleanText(value) {
   return String(value || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+const SUBSCRIPTS = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9' };
+
 function normalLabel(value) {
-  return cleanText(value).toLowerCase().replace(/^of which\s+/, '').replace(/[:*]+$/, '').trim();
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[₀-₉]/g, (digit) => SUBSCRIPTS[digit] || digit)
+    .replace(/^of which\s+/, '')
+    .replace(/\s*\([^)]*\)/g, ' ')
+    .replace(/[:*]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function parseNumber(raw) {
@@ -146,7 +159,7 @@ function classifyHeading(heading) {
   const sized = header.match(/\((\d+(?:[.,]\d+)?)\s*(g|ml)\)/i);
   const sizeUnit = sized?.[2]?.toLowerCase();
   const sizeAmount = sized ? Number(sized[1].replace(',', '.')) : null;
-  if (/pack|serving|portion/i.test(header) || sizeAmount) {
+  if (/pack|serving|portion|tablet|capsule|\bpill\b/i.test(header) || sizeAmount) {
     return {
       kind: 'portion',
       header,
@@ -194,7 +207,9 @@ function decideBasis(header, title) {
   }
   if (hasG) return { basis: { type: 'per_100g', referenceAmount: 100, referenceUnit: 'g', label: 'per 100 g' } };
   if (hasMl) return { basis: { type: 'per_100ml', referenceAmount: 100, referenceUnit: 'ml', label: 'per 100 ml' } };
-  if (serving) return { basis: { type: 'per_serving', referenceAmount: 1, referenceUnit: 'serving', label: 'per serving' } };
+  if (serving || /tablet|capsule|\bpill\b/i.test(header)) {
+    return { basis: { type: 'per_serving', referenceAmount: 1, referenceUnit: 'serving', label: 'per serving' } };
+  }
   if (product) return { basis: { type: 'per_product', referenceAmount: 1, referenceUnit: 'product', label: 'per product' } };
   return {
     basis: null,
@@ -254,7 +269,7 @@ function parseTable($, table, title) {
   const rows = matrixFromTable($, table);
   if (rows.length < 2) return null;
   const header = rows[0].join(' ');
-  const headerLooksUseful = /100\s*g|100\s*ml|serving|pack|portion|nutrition/i.test(header);
+  const headerLooksUseful = /100\s*g|100\s*ml|serving|pack|portion|nutrition|tablet|capsule|\bpill\b/i.test(header);
   const dataRows = headerLooksUseful ? rows.slice(1) : rows;
   const columnCount = Math.max(...rows.map((row) => row.length));
   const columns = [];

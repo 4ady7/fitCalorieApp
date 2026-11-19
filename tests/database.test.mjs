@@ -179,6 +179,9 @@ test('migrates the previous database without splitting private rows into a secon
     const entry = app.db.prepare('SELECT product_id, consumed_at FROM food_entries WHERE id = ?').get('entry-1');
     assert.equal(entry.product_id, product.id);
     assert.equal(entry.consumed_at, '2026-11-18T12:00:00.000Z');
+    const calorieColumn = app.db.prepare('PRAGMA table_info(food_entries)').all().find((column) => column.name === 'calories_kcal');
+    assert.equal(calorieColumn.notnull, 0);
+    assert.equal(app.db.prepare('SELECT calories_kcal FROM food_entries WHERE id = ?').get('entry-1').calories_kcal, 375);
     backfillStoredEntries(app.db);
     assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM products').get().count, 1);
     assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM users').get().count, 1);
@@ -393,6 +396,31 @@ test('keeps private logs and goals separate inside one shared product catalog', 
     assert.equal(injected.status, 404);
     assert.equal((await ada.request(`/api/days/${day}`)).data.entryCount, 1);
     assert.equal((await ben.request(`/api/days/${day}`)).data.entryCount, 2);
+    const vitamin = await ada.request('/api/entries', {
+      method: 'POST',
+      body: {
+        source: 'manual',
+        date: day,
+        name: 'A-Z multi vitamins',
+        quantity: 1,
+        quantityUnit: 'product',
+        basisType: 'portion',
+        nutrients: {
+          vitamin_c: { amount: 80, unit: 'mg' },
+          vitamin_d: { amount: 5, unit: 'µg' },
+          calcium: { amount: 240, unit: 'mg' },
+        },
+        idempotencyKey: 'ada-vitamins-0001',
+      },
+    });
+    assert.equal(vitamin.status, 201);
+    assert.equal(vitamin.data.entry.calories, null);
+    assert.equal(vitamin.data.entry.nutrients.carbohydrates, null);
+    assert.equal(vitamin.data.entry.nutrients.vitamin_c.amount, 80);
+    assert.equal(vitamin.data.day.totals.calories.amount, 100);
+    assert.equal(vitamin.data.day.totals.calories.partial, true);
+    assert.equal(vitamin.data.day.totals.vitamin_c.amount, 80);
+    assert.equal(app.db.prepare('SELECT calories_kcal FROM food_entries WHERE id = ?').get(vitamin.data.entry.id).calories_kcal, null);
     assert.equal(app.db.prepare('SELECT COUNT(DISTINCT user_id) AS count FROM food_entries').get().count, 2);
     assert.equal(app.db.prepare(`SELECT COUNT(*) AS count FROM sqlite_master WHERE name = 'users'`).get().count, 1);
   } finally {

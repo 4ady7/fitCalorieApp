@@ -66,6 +66,26 @@ test('scales a per-serving value when the product has no separate serving block'
   assert.equal(consumed.nutrients.sodium, null);
 });
 
+test('keeps calories and carbohydrates empty for a supplement serving', () => {
+  const eaten = consumedFromSnapshot({
+    basis: basisFromType('per_serving'),
+    nutrients: sanitizeNutrientMap({
+      vitamin_c: { amount: 80, unit: 'mg' },
+      vitamin_d: { amount: 5, unit: 'µg' },
+      calcium: { amount: 240, unit: 'mg' },
+    }),
+    extras: [{ key: 'vitamin_k', label: 'Vitamin K', unit: 'µg', amount: 75 }],
+    serving: null,
+  }, 1, 'serving');
+  assert.equal(eaten.nutrients.calories, null);
+  assert.equal(eaten.nutrients.carbohydrates, null);
+  assert.equal(eaten.nutrients.protein, null);
+  assert.equal(eaten.nutrients.vitamin_c.amount, 80);
+  assert.equal(eaten.nutrients.vitamin_d.amount, 5);
+  assert.equal(eaten.nutrients.calcium.amount, 240);
+  assert.equal(eaten.extras[0].amount, 75);
+});
+
 test('does not convert between incompatible units', () => {
   assert.equal(convertUnit(0.0428, 'g', 'mg'), 42.8);
   assert.equal(convertUnit(0.028, 'g', 'mg'), 28);

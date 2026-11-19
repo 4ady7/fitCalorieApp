@@ -131,12 +131,13 @@ export function mapOffProduct(product) {
   if (Number.isFinite(servingQuantity) && servingQuantity > 0 && per !== 'serving') {
     const servingValues = readSet(nutriments, '_serving');
     const unit = servingUnit(product.serving_size, basis.referenceUnit);
+    const servingRecorded = Object.values(servingValues.nutrients).some((value) => value != null) || servingValues.extras.length > 0;
     serving = {
       amount: roundAmount(servingQuantity),
       unit,
       label: product.serving_size ? `1 serving (${product.serving_size})` : '1 serving',
-      nutrients: servingValues.nutrients.calories ? servingValues.nutrients : null,
-      extras: servingValues.nutrients.calories ? servingValues.extras : [],
+      nutrients: servingRecorded ? servingValues.nutrients : null,
+      extras: servingRecorded ? servingValues.extras : [],
     };
   }
 

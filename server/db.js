@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS food_entries (
   serving_amount REAL,
   serving_unit TEXT,
   serving_label TEXT,
-  calories_kcal REAL NOT NULL CHECK (calories_kcal >= 0),
+  calories_kcal REAL CHECK (calories_kcal IS NULL OR calories_kcal >= 0),
   snapshot_json TEXT NOT NULL,
   consumed_json TEXT NOT NULL,
   provenance_json TEXT NOT NULL,
@@ -162,6 +162,78 @@ function tableExists(db, name) {
 
 function columnSet(db, table) {
   return new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name));
+}
+
+function relaxEntryCalories(db) {
+  if (!tableExists(db, 'food_entries')) return;
+  const info = db.prepare('PRAGMA table_info(food_entries)').all();
+  const calories = info.find((column) => column.name === 'calories_kcal');
+  if (!calories || calories.notnull === 0) return;
+  const names = new Set(info.map((column) => column.name));
+  const pick = (column) => (names.has(column) ? column : 'NULL');
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    db.exec(`
+      CREATE TABLE food_entries_relaxed (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
+        entry_date TEXT NOT NULL,
+        consumed_at TEXT NOT NULL,
+        name TEXT NOT NULL,
+        quantity REAL NOT NULL CHECK (quantity > 0),
+        quantity_unit TEXT NOT NULL,
+        serving_amount REAL,
+        serving_unit TEXT,
+        serving_label TEXT,
+        calories_kcal REAL CHECK (calories_kcal IS NULL OR calories_kcal >= 0),
+        snapshot_json TEXT NOT NULL,
+        consumed_json TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (user_id, idempotency_key)
+      );
+      INSERT INTO food_entries_relaxed (
+        id, user_id, product_id, entry_date, consumed_at, name, quantity, quantity_unit,
+        serving_amount, serving_unit, serving_label, calories_kcal,
+        snapshot_json, consumed_json, provenance_json, idempotency_key, created_at, updated_at
+      )
+      SELECT
+        id,
+        user_id,
+        ${pick('product_id')},
+        entry_date,
+        COALESCE(${pick('consumed_at')}, created_at),
+        name,
+        quantity,
+        quantity_unit,
+        ${pick('serving_amount')},
+        ${pick('serving_unit')},
+        ${pick('serving_label')},
+        calories_kcal,
+        snapshot_json,
+        consumed_json,
+        provenance_json,
+        idempotency_key,
+        created_at,
+        updated_at
+      FROM food_entries;
+      DROP TABLE food_entries;
+      ALTER TABLE food_entries_relaxed RENAME TO food_entries;
+      CREATE INDEX IF NOT EXISTS idx_entries_user_date ON food_entries (user_id, entry_date);
+      CREATE INDEX IF NOT EXISTS idx_entries_product ON food_entries (product_id);
+      CREATE INDEX IF NOT EXISTS idx_entries_consumed ON food_entries (user_id, consumed_at);
+    `);
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch { /* report the original error */ }
+    throw error;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
 }
 
 function addColumn(db, table, column, definition) {
@@ -259,6 +331,12 @@ export function openDatabase(databasePath) {
       }
       db.exec('CREATE INDEX IF NOT EXISTS idx_water_user_date ON water_entries (user_id, entry_date)');
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)').run(new Date().toISOString());
+    });
+  }
+  if (currentVersion(db) < 4) {
+    relaxEntryCalories(db);
+    transaction(db, () => {
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (4, ?)').run(new Date().toISOString());
     });
   }
   return db;

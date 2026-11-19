@@ -233,10 +233,6 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
       }
       nutrients[def.key] = { amount, unit: def.unit };
     }
-    if (nutrients.calories == null) {
-      setError('Enter the calories. Leave every other nutrient empty when you do not know it.');
-      return;
-    }
     setError('');
     submitLock.current = true;
     setLoading('Adding to your log…');
@@ -365,11 +361,12 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
                 <option value="per_serving">1 serving</option>
               </select>
             </label>
+            <p className="hint">Leave any nutrient blank when the label does not state it, including calories and carbohydrates. A blank is not saved as zero.</p>
             <div className="fields">
               {MANUAL_FIELDS.map((def) => (
                 <label key={def.key}>
                   {def.label} ({def.unit})
-                  <input inputMode="decimal" value={manual[def.key]} placeholder={def.key === 'calories' ? 'Required' : 'Unknown'} onChange={(event) => { setManual({ ...manual, [def.key]: event.target.value }); setIdempotencyKey(''); }} required={def.key === 'calories'} />
+                  <input inputMode="decimal" value={manual[def.key]} placeholder="Unknown" onChange={(event) => { setManual({ ...manual, [def.key]: event.target.value }); setIdempotencyKey(''); }} />
                 </label>
               ))}
             </div>

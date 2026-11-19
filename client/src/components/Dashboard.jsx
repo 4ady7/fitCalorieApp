@@ -94,7 +94,7 @@ function History({ history, date, onDate }) {
             <button type="button" aria-current={item.date === date ? 'date' : undefined} onClick={() => onDate(item.date)}>
               <span className="history-fill" style={{ width: `${((Number(item.calories) || 0) / peak) * 100}%` }} aria-hidden="true" />
               <span>{shortDay(item.date)}</span>
-              <strong>{formatNumber(item.calories, 'kcal')} kcal</strong>
+              <strong>{item.calories == null ? '—' : `${formatNumber(item.calories, 'kcal')} kcal`}</strong>
             </button>
           </li>
         ))}
@@ -249,7 +249,9 @@ function ApiKeyPanel({ ai, onAi }) {
 function Hero({ day, isToday }) {
   const amount = shownAmount(day.totals.calories, day.entryCount);
   const goal = day.goals.calories;
-  const ratio = goal && amount != null ? amount / goal : null;
+  const caloriesKnown = amount != null;
+  const ratio = goal && caloriesKnown ? amount / goal : null;
+  const missingCalories = day.entryCount > 0 && !caloriesKnown;
   return (
     <section className="hero">
       <div className="hero-copy">
@@ -259,18 +261,20 @@ function Hero({ day, isToday }) {
           <strong>{amount == null ? '—' : formatNumber(amount, 'kcal')}</strong>
           <span>kcal</span>
         </p>
-        {ratio == null && <p className="hint">Set a calorie goal to see how this day compares.</p>}
-        {ratio != null && (
+        {!goal && <p className="hint">Set a calorie goal to see how this day compares.</p>}
+        {goal && caloriesKnown && (
           <p>{formatNumber(goal, 'kcal')} kcal goal · {ratio > 1 ? `${formatNumber(amount - goal, 'kcal')} over` : `${formatNumber(goal - amount, 'kcal')} left`}</p>
         )}
+        {goal && missingCalories && <p>{formatNumber(goal, 'kcal')} kcal goal · calories were not stated</p>}
+        {!goal && missingCalories && <p className="hint">Calories were not stated for the food logged on this day.</p>}
         {day.totals.calories.partial && <p className="hint">Calories are missing from {day.totals.calories.missing} item{day.totals.calories.missing === 1 ? '' : 's'}.</p>}
       </div>
-      <CalorieRing ratio={ratio} />
+      <CalorieRing ratio={ratio} emptyLabel={goal && missingCalories ? 'Not stated' : 'No goal'} />
     </section>
   );
 }
 
-function CalorieRing({ ratio }) {
+function CalorieRing({ ratio, emptyLabel }) {
   const size = 156;
   const stroke = 12;
   const radius = (size - stroke) / 2;
@@ -299,7 +303,7 @@ function CalorieRing({ ratio }) {
       </svg>
       <p className="ring-label">
         <strong>{percent == null ? '—' : `${percent}%`}</strong>
-        <span>{percent == null ? 'No goal' : over ? 'Over goal' : 'Of goal'}</span>
+        <span>{percent == null ? emptyLabel : over ? 'Over goal' : 'Of goal'}</span>
       </p>
     </div>
   );
@@ -440,7 +444,7 @@ function EntryRow({ entry, onDay, onNotice }) {
         </div>
         <div className="entry-side">
           <p className="entry-kcal">
-            <strong>{formatNumber(entry.calories.amount, 'kcal')}</strong>
+            <strong>{entry.calories?.amount == null ? '—' : formatNumber(entry.calories.amount, 'kcal')}</strong>
             <span>kcal</span>
           </p>
           <div className="row">
