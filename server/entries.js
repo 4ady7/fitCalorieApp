@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { GOAL_PROFILES, profileFor } from '../shared/goals.js';
 import {
+  NUTRIENT_DEFS,
   assertDate,
   basisFromType,
   consumedFromSnapshot,
+  roundAmount,
   sanitizeBasis,
   sanitizeExtras,
   sanitizeGoals,
@@ -81,42 +84,138 @@ function listEntries(db, userId, date) {
   return rows.map((row) => presentEntry(row, nutrients.get(row.id)));
 }
 
-function goalMap(db, row) {
-  const map = {};
-  if (!row) return sanitizeGoals(map);
-  for (const key of ['calories', 'protein', 'carbohydrates', 'fat', 'fibre']) {
-    if (row[key] != null) map[key] = row[key];
-  }
-  const targets = db.prepare('SELECT nutrient_key, amount FROM goal_nutrient_targets WHERE goal_id = ?').all(row.id);
-  for (const target of targets) {
-    if (target.amount != null) map[target.nutrient_key] = target.amount;
-  }
-  return sanitizeGoals(map);
+const COLUMN_KEYS = ['calories', 'protein', 'carbohydrates', 'fat', 'fibre'];
+
+function emptyGoals() {
+  return { ...sanitizeGoals({}), water: null };
 }
 
-export function getGoals(db, userId, date = todayISO()) {
-  const row = db.prepare(`
+function specFromTarget(target) {
+  const profile = profileFor(target.nutrient_key);
+  const kind = profile.allowed.includes(target.kind) ? target.kind : profile.kind;
+  if (kind === 'range') {
+    if (!(target.min_amount > 0) || !(target.max_amount > 0) || target.min_amount > target.max_amount) return null;
+    return { kind, amount: null, min: target.min_amount, max: target.max_amount };
+  }
+  if (!(target.amount > 0)) return null;
+  return { kind, amount: target.amount, min: null, max: null };
+}
+
+function flatFromDetails(details) {
+  const goals = emptyGoals();
+  for (const [key, spec] of Object.entries(details)) {
+    if (!(key in goals) && key !== 'water') continue;
+    goals[key] = spec.kind === 'range' ? null : spec.amount;
+  }
+  return goals;
+}
+
+function goalRecordFromRow(db, row) {
+  if (!row) return { goals: emptyGoals(), details: {} };
+  const details = {};
+  for (const key of COLUMN_KEYS) {
+    if (row[key] != null) {
+      const profile = profileFor(key);
+      details[key] = { kind: profile.kind, amount: row[key], min: null, max: null };
+    }
+  }
+  const targets = db.prepare(`
+    SELECT nutrient_key, amount, kind, min_amount, max_amount
+    FROM goal_nutrient_targets
+    WHERE goal_id = ?
+  `).all(row.id);
+  for (const target of targets) {
+    const spec = specFromTarget(target);
+    if (spec) details[target.nutrient_key] = spec;
+    else delete details[target.nutrient_key];
+  }
+  return { goals: flatFromDetails(details), details };
+}
+
+function goalRow(db, userId, date) {
+  return db.prepare(`
     SELECT * FROM daily_goals
     WHERE user_id = ? AND effective_date <= ?
     ORDER BY effective_date DESC
     LIMIT 1
   `).get(userId, date);
-  return goalMap(db, row);
+}
+
+export function getGoals(db, userId, date = todayISO()) {
+  return goalRecordFromRow(db, goalRow(db, userId, date)).goals;
+}
+
+export function getGoalRecord(db, userId, date = todayISO()) {
+  return goalRecordFromRow(db, goalRow(db, userId, date));
+}
+
+export function listGoalHistory(db, userId) {
+  return db.prepare(`
+    SELECT * FROM daily_goals
+    WHERE user_id = ?
+    ORDER BY effective_date ASC
+  `).all(userId).map((row) => ({
+    effectiveDate: row.effective_date,
+    details: goalRecordFromRow(db, row).details,
+  }));
+}
+
+function finiteAmount(value, label) {
+  if (value == null || value === '') return null;
+  const amount = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(`${label} must be greater than zero, or left empty.`);
+  }
+  if (amount > 1000000) throw new Error(`${label} is too large.`);
+  return roundAmount(amount);
+}
+
+function normalizeSpec(key, amount, raw) {
+  const profile = GOAL_PROFILES[key] || profileFor(key);
+  const label = profile.label || key;
+  const requested = raw && typeof raw === 'object' ? raw.kind : null;
+  const kind = profile.allowed?.includes(requested) ? requested : profile.kind;
+  if (kind === 'range') {
+    const min = finiteAmount(raw?.min, `${label} minimum`);
+    const max = finiteAmount(raw?.max, `${label} maximum`);
+    if (min == null && max == null) return null;
+    if (min == null || max == null || min > max) {
+      throw new Error(`${label} range needs a minimum and a maximum, with the minimum first.`);
+    }
+    return { kind: 'range', amount: null, min, max };
+  }
+  const chosen = raw && typeof raw === 'object' && raw.amount != null ? finiteAmount(raw.amount, label) : amount;
+  if (chosen == null) return null;
+  return { kind, amount: chosen, min: null, max: null };
 }
 
 export function saveGoals(db, userId, input) {
   const source = input && typeof input === 'object' ? { ...input } : {};
   const requestedDate = source.effectiveDate;
+  const specs = source.specs && typeof source.specs === 'object' ? source.specs : {};
+  const waterRaw = source.water;
   delete source.effectiveDate;
   delete source.userId;
+  delete source.specs;
+  delete source.water;
   let targets;
   let effectiveDate = todayISO();
+  let details;
   try {
     if (requestedDate != null) effectiveDate = assertDate(requestedDate);
     targets = sanitizeGoals(source);
+    details = {};
+    for (const def of NUTRIENT_DEFS) {
+      const spec = normalizeSpec(def.key, targets[def.key], specs[def.key]);
+      if (spec) details[def.key] = spec;
+    }
+    const waterAmount = waterRaw == null || waterRaw === '' ? null : finiteAmount(waterRaw, 'Water');
+    const waterSpec = normalizeSpec('water', waterAmount, specs.water);
+    if (waterSpec) details.water = waterSpec;
   } catch (error) {
     bad(error);
   }
+  const column = (key) => (details[key] && details[key].kind !== 'range' ? details[key].amount : null);
   const now = new Date().toISOString();
   const id = randomUUID();
   transaction(db, () => {
@@ -135,22 +234,25 @@ export function saveGoals(db, userId, input) {
       id,
       userId,
       effectiveDate,
-      targets.calories,
-      targets.protein,
-      targets.carbohydrates,
-      targets.fat,
-      targets.fibre,
+      column('calories'),
+      column('protein'),
+      column('carbohydrates'),
+      column('fat'),
+      column('fibre'),
       now,
       now,
     );
     const saved = db.prepare('SELECT id FROM daily_goals WHERE user_id = ? AND effective_date = ?').get(userId, effectiveDate);
     db.prepare('DELETE FROM goal_nutrient_targets WHERE goal_id = ?').run(saved.id);
-    const insert = db.prepare('INSERT INTO goal_nutrient_targets (goal_id, nutrient_key, amount) VALUES (?, ?, ?)');
-    for (const [key, amount] of Object.entries(targets)) {
-      if (amount != null) insert.run(saved.id, key, amount);
+    const insert = db.prepare(`
+      INSERT INTO goal_nutrient_targets (goal_id, nutrient_key, amount, kind, min_amount, max_amount)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (const [key, spec] of Object.entries(details)) {
+      insert.run(saved.id, key, spec.amount, spec.kind, spec.min, spec.max);
     }
   });
-  return targets;
+  return { goals: flatFromDetails(details), details };
 }
 
 export function listHistory(db, userId) {
@@ -170,12 +272,14 @@ export function listHistory(db, userId) {
 
 export function dayPayload(db, userId, date) {
   const entries = listEntries(db, userId, parseDate(date));
+  const goalRecord = getGoalRecord(db, userId, parseDate(date));
   return {
     date,
     entries,
     totals: sumNutrientMaps(entries.map((entry) => entry.nutrients)),
     extras: sumExtras(entries.map((entry) => entry.extras)),
-    goals: getGoals(db, userId, parseDate(date)),
+    goals: goalRecord.goals,
+    goalDetails: goalRecord.details,
     history: listHistory(db, userId),
     entryCount: entries.length,
   };

@@ -88,7 +88,19 @@ CREATE TABLE IF NOT EXISTS goal_nutrient_targets (
   goal_id TEXT NOT NULL REFERENCES daily_goals(id) ON DELETE CASCADE,
   nutrient_key TEXT NOT NULL,
   amount REAL CHECK (amount IS NULL OR amount > 0),
+  kind TEXT NOT NULL DEFAULT 'target' CHECK (kind IN ('minimum', 'maximum', 'target', 'range')),
+  min_amount REAL CHECK (min_amount IS NULL OR min_amount > 0),
+  max_amount REAL CHECK (max_amount IS NULL OR max_amount > 0),
   PRIMARY KEY (goal_id, nutrient_key)
+);
+
+CREATE TABLE IF NOT EXISTS water_entries (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entry_date TEXT NOT NULL,
+  amount_ml REAL NOT NULL CHECK (amount_ml > 0 AND amount_ml <= 10000),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS food_entries (
@@ -129,6 +141,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_products_source
 CREATE INDEX IF NOT EXISTS idx_entries_user_date ON food_entries (user_id, entry_date);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_goals_user_date ON daily_goals (user_id, effective_date);
+CREATE INDEX IF NOT EXISTS idx_water_user_date ON water_entries (user_id, entry_date);
 `;
 
 export function transaction(db, fn) {
@@ -229,6 +242,23 @@ export function openDatabase(databasePath) {
     transaction(db, () => {
       addColumn(db, 'users', 'openai_api_key', 'TEXT');
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (2, ?)').run(new Date().toISOString());
+    });
+  }
+  if (currentVersion(db) < 3) {
+    transaction(db, () => {
+      addColumn(db, 'goal_nutrient_targets', 'kind', "TEXT NOT NULL DEFAULT 'target'");
+      addColumn(db, 'goal_nutrient_targets', 'min_amount', 'REAL');
+      addColumn(db, 'goal_nutrient_targets', 'max_amount', 'REAL');
+      if (tableExists(db, 'goal_nutrient_targets')) {
+        db.exec(`
+          UPDATE goal_nutrient_targets SET kind = 'minimum'
+          WHERE nutrient_key IN ('protein', 'fibre') AND kind = 'target' AND min_amount IS NULL;
+          UPDATE goal_nutrient_targets SET kind = 'maximum'
+          WHERE nutrient_key IN ('salt', 'sugars', 'added_sugars', 'saturated_fat') AND kind = 'target' AND min_amount IS NULL;
+        `);
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_water_user_date ON water_entries (user_id, entry_date)');
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (3, ?)').run(new Date().toISOString());
     });
   }
   return db;

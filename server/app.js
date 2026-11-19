@@ -20,7 +20,9 @@ import { openApiKey, sealApiKey } from './apikey.js';
 import { lookupBarcode, lookupProductUrl, normalizeBarcode } from './lookup.js';
 import { parsePublicUrl } from './security.js';
 import { backfillStoredEntries, freshProduct, rememberProduct } from './catalog.js';
+import { analyticsPayload } from './analytics.js';
 import { addEntry, dayPayload, deleteEntry, saveGoals, updateEntry } from './entries.js';
+import { addWater, deleteWater, listWater, updateWater } from './water.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -212,8 +214,38 @@ export function createApp(options = {}) {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const targets = body.targets && typeof body.targets === 'object' ? { ...body.targets } : { ...body };
     if (body.effectiveDate && targets.effectiveDate == null) targets.effectiveDate = body.effectiveDate;
+    if (body.specs && targets.specs == null) targets.specs = body.specs;
     delete targets.userId;
-    res.json({ goals: saveGoals(db, user.id, targets) });
+    const saved = saveGoals(db, user.id, targets);
+    res.json({ goals: saved.goals, goalDetails: saved.details });
+  }));
+
+  app.get('/api/analytics', asyncRoute(async (req, res) => {
+    const user = requireUser(req);
+    res.json(analyticsPayload(db, user.id, req.query.asOf));
+  }));
+
+  app.get('/api/water', asyncRoute(async (req, res) => {
+    const user = requireUser(req);
+    res.json({ entries: listWater(db, user.id, req.query.date) });
+  }));
+
+  app.post('/api/water', asyncRoute(async (req, res) => {
+    assertOrigin(req);
+    const user = requireUser(req);
+    res.status(201).json(addWater(db, user.id, req.body || {}));
+  }));
+
+  app.patch('/api/water/:id', asyncRoute(async (req, res) => {
+    assertOrigin(req);
+    const user = requireUser(req);
+    res.json(updateWater(db, user.id, req.params.id, req.body || {}));
+  }));
+
+  app.delete('/api/water/:id', asyncRoute(async (req, res) => {
+    assertOrigin(req);
+    const user = requireUser(req);
+    res.json(deleteWater(db, user.id, req.params.id));
   }));
 
   app.post('/api/entries', asyncRoute(async (req, res) => {

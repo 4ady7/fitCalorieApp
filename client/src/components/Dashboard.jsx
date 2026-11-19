@@ -18,7 +18,7 @@ function shownAmount(total, entryCount) {
   return total?.amount ?? null;
 }
 
-export function Dashboard({ user, date, day, notice, error, ai, onAi, onDate, onDay, onNotice, onLogout, onAdd }) {
+export function Dashboard({ user, date, day, notice, error, ai, onAi, onDate, onDay, onNotice, onLogout, onAdd, onAnalytics }) {
   const isToday = date === todayISO();
   return (
     <div className="app-shell">
@@ -37,6 +37,7 @@ export function Dashboard({ user, date, day, notice, error, ai, onAi, onDate, on
         </div>
         <div className="row">
           <ThemeSettings />
+          <button type="button" onClick={onAnalytics}>Analytics</button>
           <button type="button" className="primary" onClick={onAdd}><span aria-hidden="true">+</span> Add food</button>
           <button type="button" className="ghost" onClick={onLogout}>Log out</button>
         </div>
@@ -45,7 +46,7 @@ export function Dashboard({ user, date, day, notice, error, ai, onAi, onDate, on
         <aside>
           <DateNav date={date} isToday={isToday} onDate={onDate} />
           <History history={day?.history || []} date={date} onDate={onDate} />
-          {day && <Goals date={date} onDay={onDay} onNotice={onNotice} goals={day.goals} />}
+          {day && <Goals date={date} onDay={onDay} onNotice={onNotice} goals={day.goals} goalDetails={day.goalDetails} />}
         </aside>
         <main>
           {notice && <p className="banner success" role="status">{notice}</p>}
@@ -102,7 +103,7 @@ function History({ history, date, onDate }) {
   );
 }
 
-function Goals({ date, goals, onDay, onNotice }) {
+function Goals({ date, goals, goalDetails, onDay, onNotice }) {
   const [values, setValues] = useState(() => fromGoals(goals));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -113,12 +114,27 @@ function Goals({ date, goals, onDay, onNotice }) {
     setBusy(true);
     setError('');
     const targets = {};
+    const specs = {};
+    for (const [key, detail] of Object.entries(goalDetails || {})) {
+      if (!detail || GOAL_KEYS.includes(key)) continue;
+      specs[key] = { kind: detail.kind, amount: detail.amount, min: detail.min, max: detail.max };
+      targets[key] = detail.kind === 'range' ? null : detail.amount;
+    }
     for (const key of GOAL_KEYS) {
-      const raw = String(values[key]).trim();
+      const raw = String(values[key] ?? '').trim();
+      const existing = goalDetails?.[key];
+      if (existing?.kind === 'range' && raw === '') {
+        specs[key] = { kind: 'range', min: existing.min, max: existing.max };
+        targets[key] = null;
+        continue;
+      }
       targets[key] = raw === '' ? null : Number(raw);
+      if (existing?.kind && existing.kind !== 'range' && targets[key] != null) {
+        specs[key] = { kind: existing.kind, amount: targets[key] };
+      }
     }
     try {
-      await api('/api/goals', { method: 'PUT', body: { targets } });
+      await api('/api/goals', { method: 'PUT', body: { targets, specs } });
       onDay(await api(`/api/days/${date}`));
       onNotice(date === todayISO()
         ? 'Goals saved.'
@@ -133,7 +149,10 @@ function Goals({ date, goals, onDay, onNotice }) {
   return (
     <section className="panel">
       <h2>Daily goals</h2>
-      <p className="hint">A saved goal applies from today onward. Earlier days keep the goal that was already in effect.</p>
+      <p className="hint">A saved goal applies from today onward. Earlier days keep the goal that was already in effect. Salt, sugar, water, and the other analytics targets are edited on the Analytics page and kept when you save here.</p>
+      {GOAL_KEYS.some((key) => goalDetails?.[key]?.kind === 'range') && (
+        <p className="hint">A range is set for {GOAL_KEYS.filter((key) => goalDetails?.[key]?.kind === 'range').map((key) => NUTRIENT_DEFS.find((item) => item.key === key)?.label).join(', ')}. Leave the field blank to keep that range, or type a single number to replace it.</p>
+      )}
       <form onSubmit={save} className="stack">
         {GOAL_KEYS.map((key) => {
           const def = NUTRIENT_DEFS.find((item) => item.key === key);
@@ -317,7 +336,7 @@ function MacroGrid({ day }) {
 }
 
 function Micros({ day }) {
-  const defs = NUTRIENT_DEFS.filter((def) => def.group === 'micro' || def.key === 'saturated_fat' || def.key === 'sugars');
+  const defs = NUTRIENT_DEFS.filter((def) => def.group === 'micro' || ['saturated_fat', 'unsaturated_fat', 'monounsaturated_fat', 'polyunsaturated_fat', 'sugars', 'added_sugars'].includes(def.key));
   const rows = defs.map((def) => {
     const total = day.totals[def.key];
     const amount = day.entryCount === 0 ? null : total?.amount ?? null;

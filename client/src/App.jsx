@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { assertDate, todayISO } from '@shared/nutrients.js';
 import { api } from './api.js';
+import { Analytics } from './components/Analytics.jsx';
 import { AuthScreen } from './components/AuthScreen.jsx';
 import { Dashboard } from './components/Dashboard.jsx';
 import { AddFood } from './components/AddFood.jsx';
@@ -22,6 +23,16 @@ function rememberDate(next) {
   window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
+function viewFromLocation() {
+  return window.location.hash === '#analytics' ? 'analytics' : 'log';
+}
+
+function rememberView(next) {
+  const url = new URL(window.location.href);
+  url.hash = next === 'analytics' ? 'analytics' : '';
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 export function App() {
   const [user, setUser] = useState(undefined);
   const [date, setDate] = useState(dateFromLocation);
@@ -30,6 +41,7 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
+  const [view, setView] = useState(viewFromLocation);
 
   useEffect(() => {
     api('/api/auth/me')
@@ -74,6 +86,19 @@ export function App() {
     };
   }, [user, date]);
 
+  useEffect(() => {
+    function syncView() {
+      setView(viewFromLocation());
+    }
+    window.addEventListener('hashchange', syncView);
+    return () => window.removeEventListener('hashchange', syncView);
+  }, []);
+
+  function showView(next) {
+    rememberView(next);
+    setView(next);
+  }
+
   function chooseDate(next) {
     rememberDate(next);
     setDate(next);
@@ -87,6 +112,7 @@ export function App() {
     setAi({ configured: false, source: null });
     setNotice('');
     setAdding(false);
+    showView('log');
   }
 
   if (user === undefined) {
@@ -96,20 +122,32 @@ export function App() {
 
   return (
     <>
-      <Dashboard
-        user={user}
-        date={date}
-        day={day}
-        notice={notice}
-        error={error}
-        ai={ai}
-        onAi={setAi}
-        onDate={chooseDate}
-        onDay={setDay}
-        onNotice={setNotice}
-        onLogout={logout}
-        onAdd={() => setAdding(true)}
-      />
+      {view === 'analytics' ? (
+        <Analytics
+          user={user}
+          onLogout={logout}
+          onLog={() => showView('log')}
+          onGoals={() => {
+            api(`/api/days/${date}`).then(setDay).catch(() => {});
+          }}
+        />
+      ) : (
+        <Dashboard
+          user={user}
+          date={date}
+          day={day}
+          notice={notice}
+          error={error}
+          ai={ai}
+          onAi={setAi}
+          onDate={chooseDate}
+          onDay={setDay}
+          onNotice={setNotice}
+          onLogout={logout}
+          onAdd={() => setAdding(true)}
+          onAnalytics={() => showView('analytics')}
+        />
+      )}
       {adding && (
         <AddFood
           date={date}
