@@ -26,6 +26,24 @@ Copy `.env.example` to `.env`.
 - `OPENAI_BASE_URL` and `OPENAI_MODEL` select an OpenAI-compatible chat endpoint.
 - Food entries are stored in SQLite at `data/fitcalorie.sqlite`.
 
+## Share a trial
+
+The app on this computer is only reachable at localhost. A friend needs a public HTTPS address so the site, including the barcode camera, works on their phone, and the SQLite file has to live on a disk that survives restarts.
+
+[Fly.io](https://fly.io) can host that for the trial. In Ashburn, a 512 MB machine left running is about $3.69 per 30 days, and a 1 GB disk is $0.15. Three weeks is a few dollars. The friend’s log stays on that disk. This computer’s `data/` folder is not uploaded.
+
+```bash
+brew install flyctl
+fly auth signup
+fly deploy
+```
+
+`fly deploy` prints an `https://fitcalorie-trial.fly.dev` address. Open it, then send that address to your friend so they can create their own account. If that app name is taken, change `app` in `fly.toml` and run `fly deploy` again.
+
+Barcode lookup still uses Open Food Facts. Pages that have no nutrition table need an `OPENAI_API_KEY`, which you can set with `fly secrets set OPENAI_API_KEY=...` before deploying. Each account can also save its own key in the app.
+
+When the trial is over, `fly apps destroy fitcalorie-trial` stops the billing and deletes the hosted log.
+
 ## Tests
 
 ```bash

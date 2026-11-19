@@ -120,6 +120,7 @@ export function createApp(options = {}) {
 
   const app = express();
   app.disable('x-powered-by');
+  if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
   app.use(express.json({ limit: '256kb' }));
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -155,7 +156,7 @@ export function createApp(options = {}) {
     assertOrigin(req);
     const email = emailOf(req.body?.email);
     const password = passwordOf(req.body?.password, false);
-    const ip = req.socket.remoteAddress || 'local';
+    const ip = req.ip || 'local';
     if (!rateLimit(logins, `${ip}|${email}`, 20, 15 * 60 * 1000)) {
       throw new HttpError(429, 'Too many sign-in attempts. Wait a moment and try again.', 'RATE_LIMITED');
     }
