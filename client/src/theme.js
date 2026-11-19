@@ -63,6 +63,8 @@ export function applyTheme(value) {
   const theme = THEMES.find((item) => item.id === id);
   const icon = document.querySelector('link[rel="icon"]');
   if (icon && theme) icon.href = faviconHref(theme.icon[0], theme.icon[1]);
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  if (themeColor && theme) themeColor.setAttribute('content', theme.swatches[0]);
   return id;
 }
 

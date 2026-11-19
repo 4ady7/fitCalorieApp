@@ -50,7 +50,9 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
   const scanLock = useRef(false);
+  const scanGeneration = useRef(0);
   const submitLock = useRef(false);
+  const secureCamera = window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia);
 
   useEffect(() => {
     function onKey(event) {
@@ -60,51 +62,68 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  useEffect(() => () => controlsRef.current?.stop(), []);
+  useEffect(() => () => {
+    scanGeneration.current += 1;
+    controlsRef.current?.stop();
+  }, []);
 
-  useEffect(() => {
-    if (!cameraOn) return undefined;
-    let cancelled = false;
+  function stopCamera() {
+    scanGeneration.current += 1;
+    controlsRef.current?.stop();
+    controlsRef.current = null;
+    setCameraOn(false);
+  }
+
+  function startCamera() {
+    setError('');
+    if (!secureCamera) {
+      setError('Safari opens the live camera on an https page. Take a photo of the barcode instead.');
+      return;
+    }
+    const video = videoRef.current;
+    scanGeneration.current += 1;
+    const generation = scanGeneration.current;
+    controlsRef.current?.stop();
+    controlsRef.current = null;
     scanLock.current = false;
-    const reader = new BrowserMultiFormatReader(undefined, {
-      delayBetweenScanAttempts: 200,
-      delayBetweenScanSuccess: 700,
+    setCameraOn(true);
+    const request = navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' } },
     });
-    const callback = (result, _err, controls) => {
-      if (!result || scanLock.current) return;
-      scanLock.current = true;
-      controls.stop();
-      controlsRef.current = null;
-      setCameraOn(false);
-      const text = result.getText();
-      if (/^https?:\/\//i.test(text)) lookupUrl(text);
-      else lookupBarcode(text.replace(/\D/g, '') || text);
-    };
-    (async () => {
-      try {
-        let controls;
-        try {
-          controls = await reader.decodeFromVideoDevice(undefined, videoRef.current, callback);
-        } catch {
-          controls = await reader.decodeFromConstraints({ video: true }, videoRef.current, callback);
-        }
-        if (cancelled) controls.stop();
-        else controlsRef.current = controls;
-      } catch (err) {
-        if (!cancelled) {
-          setCameraOn(false);
-          setError(err?.name === 'NotAllowedError'
-            ? 'Camera access was blocked. Enter the barcode or upload a photo instead.'
-            : 'The camera could not be started. Enter the barcode or upload a photo instead.');
-        }
+    request.then(async (stream) => {
+      if (generation !== scanGeneration.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-      controlsRef.current?.stop();
-      controlsRef.current = null;
-    };
-  }, [cameraOn]);
+      const reader = new BrowserMultiFormatReader(undefined, {
+        delayBetweenScanAttempts: 200,
+        delayBetweenScanSuccess: 700,
+      });
+      const controls = await reader.decodeFromStream(stream, video, (result) => {
+        if (!result || scanLock.current) return;
+        scanLock.current = true;
+        stream.getTracks().forEach((track) => track.stop());
+        controlsRef.current?.stop();
+        controlsRef.current = null;
+        setCameraOn(false);
+        const text = result.getText();
+        if (/^https?:\/\//i.test(text)) lookupUrl(text);
+        else lookupBarcode(text.replace(/\D/g, '') || text);
+      });
+      if (generation !== scanGeneration.current) {
+        controls.stop();
+        return;
+      }
+      controlsRef.current = controls;
+    }).catch((err) => {
+      if (generation !== scanGeneration.current) return;
+      setCameraOn(false);
+      setError(err?.name === 'NotAllowedError'
+        ? 'Camera access was blocked. Allow the camera for this site in Safari settings, or take a photo of the barcode.'
+        : 'The camera could not be started. Take a photo of the barcode instead.');
+    });
+  }
 
   function resetPreview() {
     setProduct(null);
@@ -266,7 +285,7 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
     : [];
 
   return (
-    <div className="backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="add-title">
         <header className="dialog-head">
           <div>
@@ -279,7 +298,7 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
         {!product && (
           <div className="segmented" role="tablist" aria-label="How to add food">
             {[['scan', 'Scan'], ['barcode', 'Barcode'], ['url', 'Link'], ['manual', 'Manual']].map(([id, label]) => (
-              <button key={id} type="button" aria-selected={tab === id} onClick={() => { setTab(id); setError(''); setCameraOn(false); }}>{label}</button>
+              <button key={id} type="button" aria-selected={tab === id} onClick={() => { setTab(id); setError(''); stopCamera(); }}>{label}</button>
             ))}
           </div>
         )}
@@ -289,20 +308,23 @@ export function AddFood({ date, isToday, aiConfigured, onClose, onAdded }) {
 
         {!product && tab === 'scan' && (
           <div className="stack">
-            <p>Point the camera at a product barcode. You can also upload a photo of one.</p>
+            <p>{secureCamera ? 'Point the camera at a product barcode. You can also upload a photo of one.' : 'Take a photo of the barcode, or type the digits on the Barcode tab.'}</p>
             <div className="viewfinder">
-              <video ref={videoRef} muted playsInline />
+              <video ref={videoRef} muted autoPlay playsInline />
               {!cameraOn && <span>Camera is off</span>}
             </div>
-            <div className="row">
-              <button type="button" className="primary" onClick={() => { setError(''); setCameraOn((on) => !on); }}>
-                {cameraOn ? 'Stop camera' : 'Start camera'}
-              </button>
-              <label className="file-button">
-                Upload a barcode photo
+            <div className="row scan-actions">
+              {secureCamera && (
+                <button type="button" className="primary" onClick={() => (cameraOn ? stopCamera() : startCamera())}>
+                  {cameraOn ? 'Stop camera' : 'Start camera'}
+                </button>
+              )}
+              <label className={secureCamera ? 'file-button' : 'file-button primary'}>
+                {secureCamera ? 'Upload a barcode photo' : 'Take a barcode photo'}
                 <input type="file" accept="image/*" capture="environment" onChange={onPhoto} />
               </label>
             </div>
+            {!secureCamera && <p className="hint">Safari opens the live camera on an https page. On this address, take a photo of the barcode.</p>}
           </div>
         )}
 

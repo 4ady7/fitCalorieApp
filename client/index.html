@@ -2,8 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#e7f1f2" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="FitCalorie" />
     <title>FitCalorie</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400..700&family=Fraunces:opsz,wght@9..144,500..700&display=swap" rel="stylesheet" />
@@ -11,9 +18,13 @@
     <script>
       (function () {
         var allowed = { harbor: 1, orchard: 1, north: 1, ember: 1, ink: 1 };
+        var paper = { harbor: '#e7f1f2', orchard: '#f6efe9', north: '#eef2f7', ember: '#f7f0e8', ink: '#f3f2ef' };
         var saved = 'harbor';
         try { saved = localStorage.getItem('fitcalorie-theme') || saved; } catch (error) {}
-        document.documentElement.dataset.theme = allowed[saved] ? saved : 'harbor';
+        var theme = allowed[saved] ? saved : 'harbor';
+        document.documentElement.dataset.theme = theme;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', paper[theme]);
       })();
     </script>
   </head>

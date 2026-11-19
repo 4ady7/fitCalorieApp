@@ -5,11 +5,31 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { openApiKey } from '../server/apikey.js';
-import { createApp } from '../server/app.js';
+import { createApp, devNetworkOrigin } from '../server/app.js';
 import { backfillStoredEntries } from '../server/catalog.js';
 import { todayISO } from '../shared/nutrients.js';
 
 process.env.SCRYPT_N = '1024';
+
+test('phone origins on the local network are accepted only outside production', () => {
+  const previous = process.env.NODE_ENV;
+  try {
+    delete process.env.NODE_ENV;
+    assert.equal(devNetworkOrigin('http://192.168.1.20:5173'), true);
+    assert.equal(devNetworkOrigin('http://10.0.0.4:5173'), true);
+    assert.equal(devNetworkOrigin('http://172.16.0.2:5173'), true);
+    assert.equal(devNetworkOrigin('http://100.64.0.8:5173'), true);
+    assert.equal(devNetworkOrigin('http://8.8.8.8:5173'), false);
+    assert.equal(devNetworkOrigin('http://172.15.0.2:5173'), false);
+    assert.equal(devNetworkOrigin('https://evil.example'), false);
+    assert.equal(devNetworkOrigin('not a url'), false);
+    process.env.NODE_ENV = 'production';
+    assert.equal(devNetworkOrigin('http://192.168.1.20:5173'), false);
+  } finally {
+    if (previous == null) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previous;
+  }
+});
 
 const OLD_SCHEMA = `
 PRAGMA foreign_keys = ON;

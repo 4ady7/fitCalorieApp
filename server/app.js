@@ -59,6 +59,38 @@ function rateLimit(map, key, limit, windowMs) {
   return true;
 }
 
+function privateHostname(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+  if (host.includes(':')) {
+    if (host === '::1' || host.startsWith('fe80:')) return true;
+    return /^f[cd][0-9a-f]{0,2}:/.test(host);
+  }
+  const parts = host.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d+$/.test(part))) return false;
+  const nums = parts.map(Number);
+  if (nums.some((part) => part > 255)) return false;
+  const [a, b] = nums;
+  if (a === 10 || a === 127) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
+}
+
+export function devNetworkOrigin(origin) {
+  if (process.env.NODE_ENV === 'production') return false;
+  let url;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  return privateHostname(url.hostname);
+}
+
 function assertOrigin(req) {
   const origin = req.headers.origin;
   if (!origin) return;
@@ -70,7 +102,9 @@ function assertOrigin(req) {
     'http://127.0.0.1:5173',
     'http://localhost:5173',
   ]);
-  if (!allowed.has(origin)) throw new HttpError(403, 'This request was rejected.', 'BAD_ORIGIN');
+  if (!allowed.has(origin) && !devNetworkOrigin(origin)) {
+    throw new HttpError(403, 'This request was rejected.', 'BAD_ORIGIN');
+  }
 }
 
 function emailOf(value) {

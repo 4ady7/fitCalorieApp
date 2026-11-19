@@ -32,7 +32,7 @@ export function ThemeSettings() {
         Settings
       </button>
       {open && createPortal(
-        <div className="backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
+        <div className="backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
           <section className="dialog theme-dialog" role="dialog" aria-modal="true" aria-labelledby="theme-title">
             <header className="dialog-head">
               <div>

@@ -11,6 +11,8 @@ npm run dev
 
 Open http://localhost:5173. The API listens on http://127.0.0.1:8787.
 
+On an iPhone, join the same Wi-Fi and run `npm run dev`. Vite prints a Network address such as `http://192.168.1.20:5173`. Open that address in Safari, then use Share → Add to Home Screen. The live barcode camera needs an https address, so on this local address use Take a barcode photo. The hosted trial link is https and can use the live camera. If Safari cannot connect, allow incoming connections for Node in the Mac firewall.
+
 To serve the built app from one process:
 
 ```bash
